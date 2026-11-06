@@ -37,6 +37,7 @@ from .const import (
 from .engine import EngineConfig, ManualEvent, Snapshot, StateEvent, Transition
 from .engine.machine import PresenceMachine
 from .engine.places import Place
+from .engine.replay import history_events, replay
 
 #: Option keys holding a duration in seconds, by EngineConfig field (the same names).
 TIMING_KEYS = (
@@ -158,9 +159,27 @@ class PresenceCoordinator:
     # -- lifecycle ------------------------------------------------------------------------------
 
     async def async_start(self) -> None:
-        """Load stored corrections, rebuild the state, then follow live changes."""
+        """Rebuild the state from recorder history and stored corrections, then follow live.
+
+        History of every input over the lookback (24 h by default) and the stored ``set_state``
+        calls in that window are replayed into the fresh engine; their transitions are logged but
+        not fired on the bus. Stored calls older than the window are dropped. Without the
+        recorder, only the current states are used.
+        """
+        now = dt_util.utcnow()
+        start = now - self.lookback
         stored = await self._store.async_load() or {}
-        self._manual = list(stored.get("calls", []))
+        calls = list(stored.get("calls", []))
+        self._manual = [m for m in calls if datetime.fromisoformat(m["at"]) >= start]
+        if len(self._manual) != len(calls):
+            await self._store.async_save({"calls": self._manual})
+        events: list[StateEvent | ManualEvent] = []
+        if "recorder" in self.hass.config.components:
+            events += await self._history(start)
+        self.edges.extend(e for e in events if isinstance(e, StateEvent))
+        events += [ManualEvent(datetime.fromisoformat(m["at"]), m["state"]) for m in self._manual]
+        events.sort(key=lambda e: e.at)
+        self.transitions.extend(replay(self.machine, events, until=now))
         self._feed_current_states()
         self._unsubs.append(
             async_track_state_change_event(self.hass, self.inputs, self._on_state_change)
@@ -214,6 +233,25 @@ class PresenceCoordinator:
         self._schedule()
 
     # -- internals ------------------------------------------------------------------------------
+
+    async def _history(self, start: datetime) -> list[StateEvent]:
+        """Return recorder history of every input since ``start`` as engine events."""
+        from homeassistant.components.recorder import get_instance, history  # noqa: PLC0415
+
+        def read() -> dict[str, list[Any]]:
+            return history.get_significant_states(
+                self.hass,
+                start,
+                None,
+                self.inputs,
+                include_start_time_state=True,
+                significant_changes_only=False,
+                no_attributes=True,
+            )
+
+        states = await get_instance(self.hass).async_add_executor_job(read)
+        rows = {eid: [(st.last_changed, st.state) for st in sts] for eid, sts in states.items()}
+        return [self._event(e.entity_id, e.state, e.at) for e in history_events(rows)]
 
     def _zone_entity(self, state: str) -> str:
         """Map a tracker state (a zone *name*) to the zone entity id the places use."""
