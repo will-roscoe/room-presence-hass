@@ -1,0 +1,36 @@
+{
+  "builds": {
+    "Linux": {
+      "x86_64": "passing"
+    }
+  },
+  "coverage": null,
+  "docstrings": null,
+  "lint": {
+    "gates": [
+      "ruff",
+      "ruff-format"
+    ],
+    "status": "passing"
+  },
+  "python": [
+    {
+      "status": "passing",
+      "version": "3.14"
+    }
+  ],
+  "run": {
+    "commit": "470fd25b0c00a2d7fdaddb45a393fa30d0883695",
+    "id": "42234425680",
+    "url": "https://github.com/will-roscoe/room-presence-hass/actions/runs/42234425680"
+  },
+  "source": "ci",
+  "tests": {
+    "duration_s": 3.38,
+    "failed": 0,
+    "passed": 157,
+    "skipped": 0,
+    "total": 157
+  },
+  "updated": "2026-11-06T14:31:48Z"
+}

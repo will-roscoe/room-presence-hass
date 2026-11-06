@@ -1,0 +1,14 @@
+{
+  "description": "Home Assistant integration: room, bed, desk, bathroom, sleeping and place presence from an Aqara FP2 plus fallback sensors and the phone",
+  "links": {
+    "docs": "",
+    "pypi": "",
+    "repo": ""
+  },
+  "name": "room-presence-hass",
+  "open_issues": 0,
+  "released": "2026-11-06",
+  "source": "project",
+  "updated": "2026-11-06T14:31:48Z",
+  "version": "0.1.0"
+}
