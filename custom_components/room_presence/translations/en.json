@@ -1,0 +1,229 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Track a room",
+        "data": {
+          "name": "Name",
+          "fp2_room": "FP2 room zone",
+          "fp2_bed": "FP2 bed zone",
+          "fp2_desk": "FP2 desk zone",
+          "door_witnesses": "Door sensors",
+          "phone_tracker": "Phone tracker",
+          "phone_ssid": "Phone Wi-Fi network sensor"
+        },
+        "data_description": {
+          "fp2_room": "Occupancy sensor of the FP2 zone covering the whole room (not the bathroom).",
+          "door_witnesses": "Sensors that see the door: the FP2 door zone and/or a motion sensor aimed at it. Leaving needs one of them.",
+          "phone_tracker": "Device tracker of the occupant's phone (its zone).",
+          "phone_ssid": "Sensor with the Wi-Fi network the phone is on (optional)."
+        }
+      }
+    },
+    "error": {
+      "door_witness_required": "Pick at least one door sensor."
+    },
+    "abort": {
+      "already_configured": "This FP2 room zone is already tracked."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sensors and timings",
+        "data": {
+          "crossing_window": "Crossing window",
+          "bathroom_window": "Bathroom window",
+          "recently_left_duration": "Recently left for",
+          "sleep_quiet": "Stillness before sleeping",
+          "wake_on_time": "Wake movement",
+          "bed_leave_grace": "Out of bed grace",
+          "exit_pre_window": "Fallback: motion before the door",
+          "exit_quiet": "Fallback: quiet after the door",
+          "exit_door_on_time": "Fallback: door on-time",
+          "entry_window": "Fallback: entry window",
+          "rebuild_lookback": "History replayed at startup",
+          "entry_needs_crossing": "Entry needs a door crossing",
+          "bathroom": "Bathroom sensor",
+          "movement": "Movement sensor",
+          "fallback_motion": "Fallback motion sensors",
+          "sleep_entities": "Sleep entities"
+        },
+        "data_description": {
+          "crossing_window": "How far back from the FP2 going empty a door-sensor trigger counts as walking out (seconds).",
+          "bathroom_window": "After a crossing, a bathroom-sensor trigger within this time means the bathroom, not leaving (seconds).",
+          "recently_left_duration": "How long recently_left lasts before the place layer takes over (seconds).",
+          "sleep_quiet": "In bed with no movement-sensor trigger for this long means sleeping (seconds).",
+          "wake_on_time": "A movement-sensor trigger longer than this wakes (seconds).",
+          "bed_leave_grace": "Leaving the bed zone for longer than this wakes (seconds).",
+          "exit_pre_window": "FP2 unavailable: an exit needs motion this soon before the door trigger (seconds).",
+          "exit_quiet": "FP2 unavailable: no motion for this long after the door means left (seconds).",
+          "exit_door_on_time": "FP2 unavailable: the door trigger must last at least this long (seconds).",
+          "entry_window": "FP2 unavailable: other sensors must trigger this soon after the door to count as an entry (seconds).",
+          "rebuild_lookback": "Hours of recorder history replayed to rebuild the state.",
+          "entry_needs_crossing": "Only count the FP2 room zone as an entry if a door sensor triggered just before.",
+          "bathroom": "Motion sensor in the ensuite.",
+          "movement": "Motion sensor watching the bed; used to tell sleeping from lying awake.",
+          "fallback_motion": "Motion sensors used while the FP2 is unavailable.",
+          "sleep_entities": "When all of these turn off while in bed, that means sleeping (e.g. lights)."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "place": {
+      "entry_type": "Place",
+      "initiate_flow": {
+        "user": "Add place"
+      },
+      "step": {
+        "user": {
+          "title": "Add a place",
+          "data": {
+            "name": "Name",
+            "ssids": "Wi-Fi networks",
+            "zones": "Zones",
+            "mode": "Match",
+            "priority": "Priority",
+            "on_site": "In the home building"
+          },
+          "data_description": {
+            "ssids": "The phone on any of these networks is here.",
+            "zones": "The phone tracker in any of these zones is here.",
+            "mode": "any: an SSID or a zone is enough; all: needs both.",
+            "priority": "Lower wins when several places match.",
+            "on_site": "Counts as home (e.g. the building's common room) and never overrides the room sensors."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit place",
+          "data": {
+            "name": "Name",
+            "ssids": "Wi-Fi networks",
+            "zones": "Zones",
+            "mode": "Match",
+            "priority": "Priority",
+            "on_site": "In the home building"
+          },
+          "data_description": {
+            "ssids": "The phone on any of these networks is here.",
+            "zones": "The phone tracker in any of these zones is here.",
+            "mode": "any: an SSID or a zone is enough; all: needs both.",
+            "priority": "Lower wins when several places match.",
+            "on_site": "Counts as home (e.g. the building's common room) and never overrides the room sensors."
+          }
+        }
+      },
+      "error": {
+        "place_name_reserved": "That name is a built-in location; pick another.",
+        "place_name_taken": "Another place already has that name.",
+        "place_needs_ssid_or_zone": "Give at least one Wi-Fi network or zone."
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "any": "Any (SSID or zone)",
+        "all": "All (SSID and zone)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "location": {
+        "name": "Location",
+        "state": {
+          "bed": "Bed",
+          "desk": "Desk",
+          "room": "Room",
+          "bathroom": "Bathroom",
+          "sleeping": "Sleeping",
+          "recently_left": "Recently left",
+          "away": "Away",
+          "unknown": "Unknown"
+        },
+        "state_attributes": {
+          "since": {
+            "name": "Since"
+          },
+          "room_state": {
+            "name": "Room state"
+          },
+          "held": {
+            "name": "Held"
+          },
+          "place": {
+            "name": "Place"
+          },
+          "conflict": {
+            "name": "Phone disagrees"
+          },
+          "reason": {
+            "name": "Reason"
+          },
+          "phone_age": {
+            "name": "Phone data age"
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "in_room": {
+        "name": "In room"
+      },
+      "in_bed": {
+        "name": "In bed"
+      },
+      "at_desk": {
+        "name": "At desk"
+      },
+      "in_bathroom": {
+        "name": "In bathroom"
+      },
+      "sleeping": {
+        "name": "Sleeping"
+      },
+      "recently_left": {
+        "name": "Recently left"
+      },
+      "home": {
+        "name": "Home"
+      },
+      "degraded": {
+        "name": "Degraded"
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_found": {
+      "message": "No loaded room_presence entry has the id {entry_id}."
+    },
+    "entry_required": {
+      "message": "Several room_presence entries are loaded: give config_entry_id."
+    },
+    "invalid_state": {
+      "message": "{state} is not a location you can set: use bed, desk, room, bathroom, sleeping, recently_left, away or a configured place."
+    }
+  },
+  "services": {
+    "set_state": {
+      "name": "Set state",
+      "description": "Correct the tracked location, now or after a delay. Inference continues from the new state.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Room",
+          "description": "The room_presence entry to correct. Needed only when there are several."
+        },
+        "state": {
+          "name": "State",
+          "description": "bed, desk, room, bathroom, sleeping, recently_left, away, or a place slug."
+        },
+        "delay": {
+          "name": "Delay",
+          "description": "Seconds to wait before applying. A new call cancels a pending one; a pending call does not survive a restart."
+        }
+      }
+    }
+  }
+}

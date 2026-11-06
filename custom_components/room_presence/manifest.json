@@ -1,0 +1,18 @@
+{
+  "domain": "room_presence",
+  "name": "Room Presence",
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@will-roscoe"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/will-roscoe/room-presence-hass",
+  "integration_type": "device",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/will-roscoe/room-presence-hass/issues",
+  "requirements": [],
+  "version": "0.0.0"
+}
