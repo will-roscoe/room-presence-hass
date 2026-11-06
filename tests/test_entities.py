@@ -96,5 +96,6 @@ async def test_diagnostics_contains_transitions(hass, entry, hass_client):
     assert diag["transitions"][-1]["new"] == "bed"
     assert diag["transitions"][-1]["reason"] == "manual"
     assert {p["slug"] for p in diag["places"]} == {"uni", "building"}
+    assert {str(p["ssids"]) for p in diag["places"]} == {"**REDACTED**"}
     assert "edges" in diag and "options" in diag
     assert diag["snapshot"]["location"] == "bed"

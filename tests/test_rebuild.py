@@ -154,3 +154,21 @@ async def test_old_offsite_ssid_does_not_override_newer_detection(recorder_mock,
     await setup(hass, entry)
     snap = entry.runtime_data.snapshot
     assert snap.location in ("bed", "sleeping")
+
+
+async def test_history_read_failure_falls_back_to_current_states(
+    recorder_mock, hass, freezer, monkeypatch
+):
+    from custom_components.room_presence.coordinator import PresenceCoordinator
+
+    async def boom(self, start):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(PresenceCoordinator, "_history", boom)
+    h = History(hass, freezer)
+    h.quiet_start(H)
+    h.at(10 * M, ROOM, "on")
+    await h.done()
+    entry = make_entry(hass)
+    await setup(hass, entry)
+    assert entry.runtime_data.snapshot.location == "room"

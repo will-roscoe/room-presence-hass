@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
+import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -53,6 +54,7 @@ TIMING_KEYS = (
     "entry_window",
 )
 SUBENTRY_PLACE = "place"
+_LOGGER = logging.getLogger(__name__)
 STORE_VERSION = 1
 
 
@@ -175,7 +177,13 @@ class PresenceCoordinator:
             await self._store.async_save({"calls": self._manual})
         events: list[StateEvent | ManualEvent] = []
         if "recorder" in self.hass.config.components:
-            events += await self._history(start)
+            try:
+                events += await self._history(start)
+            except Exception:  # noqa: BLE001 - any recorder failure: start without history
+                _LOGGER.warning(
+                    "Could not read recorder history; starting from current states only",
+                    exc_info=True,
+                )
         self.edges.extend(e for e in events if isinstance(e, StateEvent))
         events += [ManualEvent(datetime.fromisoformat(m["at"]), m["state"]) for m in self._manual]
         events.sort(key=lambda e: e.at)

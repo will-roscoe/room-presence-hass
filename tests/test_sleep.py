@@ -201,3 +201,47 @@ def test_force_sleeping():
     rig.sleep.force(t(200), True)
     assert rig.sleep.sleeping
     assert rig.sleep.since == t(200)
+
+
+def test_entities_first_seen_off_do_not_arm():
+    rig = Rig(CFG_ENT)
+    rig.feed(0, L1, "off")  # e.g. the history row at the start of the replay
+    rig.feed(0, L2, "off")
+    rig.feed(0, ROOM, "on")
+    rig.feed(30, BED, "on")
+    rig.tick(600)
+    assert not rig.sleep.sleeping
+
+
+def test_entity_unavailable_then_off_does_not_arm():
+    rig = in_bed(CFG_ENT)
+    rig.feed(100, L1, "off")
+    rig.feed(200, L2, "unavailable")
+    rig.feed(201, L2, "off")
+    assert not rig.sleep.sleeping
+
+
+def test_entities_off_long_before_bed_do_not_sleep():
+    rig = Rig(CFG_ENT)
+    rig.feed(0, L1, "on")
+    rig.feed(0, L2, "on")
+    rig.feed(0, ROOM, "on")
+    rig.feed(10, L1, "off")
+    rig.feed(11, L2, "off")
+    rig.feed(11 + 2 * 3600, BED, "on")  # sits on the bed hours later, lights still off
+    assert not rig.sleep.sleeping
+
+
+def test_leaving_the_room_disarms_entity_route():
+    rig = Rig(CFG_ENT)
+    for e in (L1, L2):
+        rig.feed(0, e, "on")
+    rig.feed(0, DOOR, "off")
+    rig.feed(0, ROOM, "on")
+    rig.feed(10, L1, "off")
+    rig.feed(11, L2, "off")
+    rig.feed(40, DOOR, "on")
+    rig.feed(60, ROOM, "off")  # left
+    rig.feed(120, ROOM, "on")
+    rig.feed(130, BED, "on")
+    assert not rig.sleep.sleeping

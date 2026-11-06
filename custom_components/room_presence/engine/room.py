@@ -262,8 +262,8 @@ class RoomLayer:
             if self.degraded:
                 return []
             back = entity_id == cfg.fp2_room and prev in (None, *UNSEEN)
-            if back:
-                self._fallback_exit = None
+            if back and self._zone_sub() is not None:
+                self._fallback_exit = None  # the FP2 sees someone: no exit happened
             return self._on_zone_change(at, was_any_on, back)
         if self.degraded:
             return self._fallback(at, entity_id, prev, edge, on_at)
@@ -309,9 +309,12 @@ class RoomLayer:
         if self._state is RoomState.UNKNOWN:
             return self._set(at, RoomState.OUT, None, "fp2_zone")
         if back:
+            # Back and empty: an exit during the outage is either the fallback candidate
+            # still waiting for its quiet period, or a door edge in the usual look-back.
             self._reason = "fp2_back"
-            return []
-        if not was_any_on:
+            if self._fallback_exit is not None:
+                return []
+        elif not was_any_on:
             return []
         if (
             self._state is not RoomState.IN_ROOM
@@ -321,7 +324,7 @@ class RoomLayer:
             return []
         crossing = self._latest_edge(cfg.door_witnesses, at - cfg.crossing_window, at)
         if crossing is None:
-            self._reason = "held"
+            self._reason = "fp2_back" if back else "held"
             return []
         if cfg.bathroom is None:
             return self._set(crossing, RoomState.RECENTLY_LEFT, None, "crossing")

@@ -192,3 +192,54 @@ def test_zone_going_unavailable_while_held_does_not_recheck_exit():
     trs += layer.tick(t(1000))
     assert layer.state is RoomState.IN_ROOM
     assert trs == []
+
+
+def test_exit_during_short_outage_with_fallback_candidate():
+    layer = RoomLayer(CFG)
+    run(layer, *[(0, e, "off") for e in (THP_DOOR, THP_ROOM, THP_DESK, BATH)], (0, ROOM, "on"))
+    run(
+        layer,
+        (100, ROOM, "unavailable"),
+        (100, DOOR, "unavailable"),
+        (105, THP_ROOM, "on"),
+        (109, THP_ROOM, "off"),
+        (110, THP_DOOR, "on"),
+        (122, THP_DOOR, "off"),
+        (140, DOOR, "off"),
+        (140, ROOM, "off"),
+    )
+    assert layer.state is RoomState.IN_ROOM  # still waiting for the fallback quiet period
+    trs = layer.tick(t(122 + 180))
+    assert layer.state is RoomState.RECENTLY_LEFT
+    assert [(tr.at, tr.reason) for tr in trs] == [(t(110), "fallback_exit")]
+
+
+def test_fp2_back_empty_after_recent_door_edge_is_a_crossing():
+    layer = RoomLayer(CFG)
+    run(layer, *[(0, e, "off") for e in (THP_DOOR, THP_ROOM, THP_DESK, BATH)], (0, ROOM, "on"))
+    run(
+        layer,
+        (100, ROOM, "unavailable"),
+        (110, THP_DOOR, "on"),
+        (114, THP_DOOR, "off"),  # too short for the fallback rule
+        (130, ROOM, "off"),
+    )
+    layer.tick(t(130 + 30))
+    assert layer.state is RoomState.RECENTLY_LEFT
+    assert layer.since == t(110)
+
+
+def test_fp2_back_with_a_zone_on_cancels_fallback_exit():
+    layer = RoomLayer(CFG)
+    run(layer, *[(0, e, "off") for e in (THP_DOOR, THP_ROOM, THP_DESK, BATH)], (0, ROOM, "on"))
+    run(
+        layer,
+        (100, ROOM, "unavailable"),
+        (105, THP_ROOM, "on"),
+        (109, THP_ROOM, "off"),
+        (110, THP_DOOR, "on"),
+        (122, THP_DOOR, "off"),
+        (140, ROOM, "on"),
+    )
+    layer.tick(t(1000))
+    assert layer.state is RoomState.IN_ROOM

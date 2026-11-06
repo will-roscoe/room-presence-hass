@@ -6,10 +6,13 @@ seen the same event, so it always judges against the current room state.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .room import UNSEEN, RoomLayer
 from .types import EngineConfig, RoomState, StateEvent, Sub, Transition
+
+#: How long after the sleep entities all turn off getting into bed still counts as going to sleep.
+ENTITY_ARM_WINDOW = timedelta(minutes=5)
 
 
 class SleepTracker:
@@ -54,9 +57,11 @@ class SleepTracker:
             elif ev.state != "on":
                 self._move_on_since = None
         elif ev.entity_id in cfg.sleep_entities:
-            was_all_off = self._all_off()
+            prev = self._entity_states.get(ev.entity_id)
             self._entity_states[ev.entity_id] = ev.state
-            if self._all_off() and not was_all_off:
+            # Only a real on -> off that leaves everything off arms the route; a first sighting
+            # or a return from unavailable says nothing about someone going to sleep.
+            if prev == "on" and self._all_off():
                 self._armed_at = at
             elif ev.state == "on":
                 self._armed_at = None
@@ -89,6 +94,10 @@ class SleepTracker:
     def tick(self, now: datetime, room: RoomLayer) -> list[Transition]:
         """Apply every sleep or wake rule due at ``now`` and return the transitions."""
         cfg = self.cfg
+        if self._armed_at is not None and (
+            room.state is not RoomState.IN_ROOM or now > self._armed_at + ENTITY_ARM_WINDOW
+        ):
+            self._armed_at = None
         if self._sleeping:
             if room.state is not RoomState.IN_ROOM:
                 return self._wake(room.since or now, "wake_left_bed")

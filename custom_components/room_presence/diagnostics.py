@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from . import PresenceConfigEntry
@@ -13,14 +14,15 @@ from . import PresenceConfigEntry
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: PresenceConfigEntry
 ) -> dict[str, Any]:
-    """Return ``data``, ``options``, ``places``, ``snapshot``, ``transitions`` and ``edges``."""
+    """Return ``data``, ``options``, ``places`` (SSIDs redacted), ``snapshot``, ``transitions``
+    and ``edges``."""
     coord = entry.runtime_data
     snap = asdict(coord.snapshot)
     snap["since"] = snap["since"].isoformat() if snap["since"] else None
     return {
         "data": dict(entry.data),
         "options": dict(entry.options),
-        "places": [asdict(p) for p in coord.places],
+        "places": [async_redact_data(asdict(p), {"ssids"}) for p in coord.places],
         "snapshot": snap,
         "transitions": [
             {"at": t.at.isoformat(), "old": t.old, "new": t.new, "reason": t.reason}
