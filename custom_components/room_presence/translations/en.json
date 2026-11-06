@@ -129,6 +129,72 @@
       }
     }
   },
+  "entity": {
+    "sensor": {
+      "location": {
+        "name": "Location",
+        "state": {
+          "bed": "Bed",
+          "desk": "Desk",
+          "room": "Room",
+          "bathroom": "Bathroom",
+          "sleeping": "Sleeping",
+          "recently_left": "Recently left",
+          "away": "Away",
+          "unknown": "Unknown"
+        },
+        "state_attributes": {
+          "since": {
+            "name": "Since"
+          },
+          "room_state": {
+            "name": "Room state"
+          },
+          "held": {
+            "name": "Held"
+          },
+          "place": {
+            "name": "Place"
+          },
+          "conflict": {
+            "name": "Phone disagrees"
+          },
+          "reason": {
+            "name": "Reason"
+          },
+          "phone_age": {
+            "name": "Phone data age"
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "in_room": {
+        "name": "In room"
+      },
+      "in_bed": {
+        "name": "In bed"
+      },
+      "at_desk": {
+        "name": "At desk"
+      },
+      "in_bathroom": {
+        "name": "In bathroom"
+      },
+      "sleeping": {
+        "name": "Sleeping"
+      },
+      "recently_left": {
+        "name": "Recently left"
+      },
+      "home": {
+        "name": "Home"
+      },
+      "degraded": {
+        "name": "Degraded"
+      }
+    }
+  },
   "exceptions": {
     "entry_not_found": {
       "message": "No loaded room_presence entry has the id {entry_id}."

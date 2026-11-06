@@ -12,7 +12,7 @@ from .const import DOMAIN
 from .coordinator import PresenceCoordinator
 from .services import async_register_services
 
-PLATFORMS: list[Platform] = []
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 type PresenceConfigEntry = ConfigEntry[PresenceCoordinator]
 
