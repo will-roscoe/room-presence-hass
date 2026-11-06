@@ -31,7 +31,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: PresenceConfigEntry) -> 
     entry.runtime_data = coord
     await coord.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_reload))
     return True
+
+
+async def _async_reload(hass: HomeAssistant, entry: PresenceConfigEntry) -> None:
+    """Reload after the options or the places change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: PresenceConfigEntry) -> bool:
