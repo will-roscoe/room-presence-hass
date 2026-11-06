@@ -76,7 +76,7 @@ class PresenceMachine:
             fixed location and not a configured place slug; nothing changes.
         """
         if isinstance(ev, ManualEvent):
-            self._check_manual(ev.state)
+            self.check_state(ev.state)
         out = self.tick(ev.at)
         if isinstance(ev, ManualEvent):
             return out + self._emit(self._manual(ev), ev.at)
@@ -132,7 +132,8 @@ class PresenceMachine:
 
     # -- internals ------------------------------------------------------------------------------
 
-    def _check_manual(self, state: str) -> None:
+    def check_state(self, state: str) -> None:
+        """Raise :class:`ValueError` unless ``state`` is a valid manual (``set_state``) state."""
         allowed = set(LOCATIONS_FIXED) - {"unknown"} | {p.slug for p in self.places}
         if state not in allowed:
             raise ValueError(f"unknown state {state!r}; expected one of {sorted(allowed)}")

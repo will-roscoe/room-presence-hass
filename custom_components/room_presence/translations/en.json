@@ -1,0 +1,33 @@
+{
+  "exceptions": {
+    "entry_not_found": {
+      "message": "No loaded room_presence entry has the id {entry_id}."
+    },
+    "entry_required": {
+      "message": "Several room_presence entries are loaded: give config_entry_id."
+    },
+    "invalid_state": {
+      "message": "{state} is not a location you can set: use bed, desk, room, bathroom, sleeping, recently_left, away or a configured place."
+    }
+  },
+  "services": {
+    "set_state": {
+      "name": "Set state",
+      "description": "Correct the tracked location, now or after a delay. Inference continues from the new state.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Room",
+          "description": "The room_presence entry to correct. Needed only when there are several."
+        },
+        "state": {
+          "name": "State",
+          "description": "bed, desk, room, bathroom, sleeping, recently_left, away, or a place slug."
+        },
+        "delay": {
+          "name": "Delay",
+          "description": "Seconds to wait before applying. A new call cancels a pending one; a pending call does not survive a restart."
+        }
+      }
+    }
+  }
+}

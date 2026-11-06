@@ -1,0 +1,19 @@
+set_state:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: room_presence
+    state:
+      required: true
+      example: bed
+      selector:
+        text:
+    delay:
+      example: 60
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: s
+          mode: box
