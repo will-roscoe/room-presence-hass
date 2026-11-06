@@ -47,6 +47,10 @@ class RoomLayer:
         self._pending_exit: datetime | None = None
         #: When the zones first said plain ``room`` while the sub-location was bed or desk.
         self._pending_drop: datetime | None = None
+        #: When each input currently ``on`` turned on (an edge), for on-time rules.
+        self._on_at: dict[str, datetime] = {}
+        #: Fallback exit candidate: (door edge, door off), waiting for the quiet period.
+        self._fallback_exit: tuple[datetime, datetime] | None = None
 
     # -- read-only view -------------------------------------------------------------------------
 
@@ -93,8 +97,8 @@ class RoomLayer:
 
     @property
     def degraded(self) -> bool:
-        """True while the FP2 room zone is unavailable."""
-        return False
+        """True while the FP2 room zone is ``unavailable``/``unknown`` or has not reported yet."""
+        return self._states.get(self.cfg.fp2_room) in (None, *UNSEEN)
 
     @property
     def now(self) -> datetime | None:
@@ -120,16 +124,19 @@ class RoomLayer:
         if prev == ev.state:
             return out
         was_detected = self.detected
+        was_any_on = self._zone_sub() is not None
         self._states[ev.entity_id] = ev.state
         edge = ev.state == "on" and prev not in UNSEEN
+        on_at = self._on_at.pop(ev.entity_id, None)
         if edge:
+            self._on_at[ev.entity_id] = at
             edges = self._edges.setdefault(ev.entity_id, [])
             edges.append(at)
             while edges and edges[0] < at - EDGE_MEMORY:
                 edges.pop(0)
         if was_detected or self.detected:
             self._last_detection = at
-        out += self._evaluate(at, ev.entity_id, edge)
+        out += self._evaluate(at, ev.entity_id, prev, edge, was_any_on, on_at)
         return out
 
     def force(
@@ -141,7 +148,7 @@ class RoomLayer:
         """
         at = at if self._now is None or at > self._now else self._now
         self._now = at
-        self._pending_exit = self._pending_drop = None
+        self._pending_exit = self._pending_drop = self._fallback_exit = None
         if state is RoomState.IN_ROOM:
             self._last_detection = at
         return self._set(at, state, sub, reason)
@@ -212,6 +219,8 @@ class RoomLayer:
             out.append(("exit", self._pending_exit + self.cfg.bathroom_window))
         if self._state is RoomState.RECENTLY_LEFT and self._since is not None:
             out.append(("expire", self._since + self.cfg.recently_left_duration))
+        if self._fallback_exit is not None:
+            out.append(("fallback_exit", self._fallback_exit[1] + self.cfg.exit_quiet))
         return out
 
     def _run_deadline(self, kind: str, d: datetime) -> list[Transition]:
@@ -225,12 +234,39 @@ class RoomLayer:
             edge, self._pending_exit = self._pending_exit, None
             assert edge is not None
             return self._set(edge, RoomState.RECENTLY_LEFT, None, "crossing")
+        if kind == "fallback_exit":
+            candidate, self._fallback_exit = self._fallback_exit, None
+            assert candidate is not None
+            if self._state is not RoomState.IN_ROOM:
+                return []
+            return self._set(candidate[0], RoomState.RECENTLY_LEFT, None, "fallback_exit")
         return self._set(d, RoomState.OUT, None, "recently_left_expired")
 
-    def _evaluate(self, at: datetime, entity_id: str, edge: bool) -> list[Transition]:
+    def _evaluate(
+        self,
+        at: datetime,
+        entity_id: str,
+        prev: str | None,
+        edge: bool,
+        was_any_on: bool,
+        on_at: datetime | None,
+    ) -> list[Transition]:
         cfg = self.cfg
+        if entity_id == cfg.fp2_room and self.degraded:
+            # The FP2 went away: hold everything, and let the fallback watch the door.
+            self._pending_drop = None
+            if self._state is not RoomState.UNKNOWN:
+                self._reason = "fp2_unavailable"
+            return []
         if entity_id in (cfg.fp2_room, cfg.fp2_bed, cfg.fp2_desk):
-            return self._on_zone_change(at)
+            if self.degraded:
+                return []
+            back = entity_id == cfg.fp2_room and prev in (None, *UNSEEN)
+            if back:
+                self._fallback_exit = None
+            return self._on_zone_change(at, was_any_on, back)
+        if self.degraded:
+            return self._fallback(at, entity_id, prev, edge, on_at)
         if (
             entity_id == cfg.bathroom
             and edge
@@ -241,7 +277,7 @@ class RoomLayer:
             return self._set(at, RoomState.IN_ROOM, Sub.BATHROOM, "bathroom")
         return []
 
-    def _on_zone_change(self, at: datetime) -> list[Transition]:
+    def _on_zone_change(self, at: datetime, was_any_on: bool, back: bool) -> list[Transition]:
         cfg = self.cfg
         zsub = self._zone_sub()
         if zsub is not None:
@@ -250,9 +286,14 @@ class RoomLayer:
                 if zsub is Sub.ROOM and self._sub in (Sub.BED, Sub.DESK):
                     if self._pending_drop is None:
                         self._pending_drop = at
+                    if back:
+                        self._reason = "fp2_back"
                     return []
                 self._pending_drop = None
-                return self._set(at, RoomState.IN_ROOM, zsub, "fp2_zone")
+                out = self._set(at, RoomState.IN_ROOM, zsub, "fp2_zone")
+                if back and not out:
+                    self._reason = "fp2_back"
+                return out
             if (
                 self._state is not RoomState.UNKNOWN
                 and cfg.entry_needs_crossing
@@ -267,6 +308,11 @@ class RoomLayer:
         self._pending_drop = None
         if self._state is RoomState.UNKNOWN:
             return self._set(at, RoomState.OUT, None, "fp2_zone")
+        if back:
+            self._reason = "fp2_back"
+            return []
+        if not was_any_on:
+            return []
         if (
             self._state is not RoomState.IN_ROOM
             or self._sub is Sub.BATHROOM
@@ -285,3 +331,39 @@ class RoomLayer:
             return self._set(crossing, RoomState.RECENTLY_LEFT, None, "crossing")
         self._pending_exit = crossing
         return []
+
+    def _fallback(
+        self, at: datetime, entity_id: str, prev: str | None, edge: bool, on_at: datetime | None
+    ) -> list[Transition]:
+        """THP door rules while the FP2 is unavailable (spec §5.3)."""
+        cfg = self.cfg
+        motion = tuple(cfg.fallback_motion)
+        if entity_id in cfg.door_witnesses:
+            if (
+                prev == "on"
+                and on_at is not None
+                and self._state is RoomState.IN_ROOM
+                and at - on_at >= cfg.exit_door_on_time
+                and self._latest_edge(motion, on_at - cfg.exit_pre_window, on_at) is not None
+            ):
+                self._fallback_exit = (on_at, at)
+            return []
+        if not edge:
+            return []
+        others = [e for e in (*motion, cfg.bathroom) if e and e not in cfg.door_witnesses]
+        if entity_id not in others:
+            return []
+        if self._fallback_exit is not None and at > self._fallback_exit[1]:
+            self._fallback_exit = None
+        if self._state is RoomState.IN_ROOM:
+            return []
+        available = [e for e in others if self._states.get(e) in ("on", "off")]
+        need = min(2, len(available))
+        door = self._latest_edge(cfg.door_witnesses, at - cfg.entry_window, at)
+        if need == 0 or door is None:
+            return []
+        end = door + cfg.entry_window
+        seen = {e for e in others if any(door <= x <= end for x in self._edges.get(e, ()))}
+        if len(seen) < need:
+            return []
+        return self._set(at, RoomState.IN_ROOM, Sub.ROOM, "fallback_entry")
