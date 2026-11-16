@@ -1,57 +1,62 @@
-"""Sleeping: in bed and still, or the sleep entities all off; wake rules."""
+"""Sleeping per bed spot: in bed and still, or the sleep entities all off; the wake rules."""
 
-from datetime import UTC, datetime, timedelta
-
-from custom_components.room_presence.engine.room import RoomLayer
 from custom_components.room_presence.engine.sleep import SleepTracker
-from custom_components.room_presence.engine.types import EngineConfig, StateEvent
+from custom_components.room_presence.engine.types import HomeConfig, StateEvent
+from tests.homes import FP2, THP, bedroom, home
+from tests.rig import Rig as PersonRig, t
 
-T0 = datetime(2000, 1, 3, 22, 0, tzinfo=UTC)
-ROOM = "binary_sensor.fp2_room"
-BED = "binary_sensor.fp2_bed"
-DOOR = "binary_sensor.fp2_door"
-MOVE = "binary_sensor.thp_room"
+ROOM, BED, DOOR = FP2.format("room"), FP2.format("bed"), FP2.format("door")
+MOVE = THP.format(1)
 L1 = "light.desk"
 L2 = "light.ceiling"
 
-CFG = EngineConfig(fp2_room=ROOM, fp2_bed=BED, door_witnesses=(DOOR,), movement=MOVE)
-CFG_ENT = EngineConfig(fp2_room=ROOM, fp2_bed=BED, door_witnesses=(DOOR,), sleep_entities=(L1, L2))
+CFG = home(bedroom(desk=False, exits=(DOOR,), stillness=MOVE))
+CFG_ENT = home(bedroom(desk=False, exits=(DOOR,), stillness=None, sleep_entities=(L1, L2)))
 
 
-def t(seconds: float) -> datetime:
-    return T0 + timedelta(seconds=seconds)
+class Rig(PersonRig):
+    """Rooms, the person and the bed spot's sleep tracker driven together, as the machine does."""
 
+    def __init__(self, h: HomeConfig) -> None:
+        super().__init__(h)
+        room = h.rooms[0]
+        spot = next(s for s in room.spots if s.role == "bed")
+        self.sleep = SleepTracker(room.slug, spot, h.timings)
 
-class Rig:
-    """A room layer and a sleep tracker driven together, as the machine drives them."""
-
-    def __init__(self, cfg: EngineConfig) -> None:
-        self.room = RoomLayer(cfg)
-        self.sleep = SleepTracker(cfg)
-        self.log = []
-
-    def tick(self, seconds: float) -> None:
+    def tick(self, seconds: float) -> list:
         now = t(seconds)
+        out = []
         while True:
-            ds = [d for d in (self.room.next_deadline(), self.sleep.next_deadline(self.room)) if d]
+            ds = [
+                d for d in (self.person.next_deadline(), self.sleep.next_deadline(self.person)) if d
+            ]
             if not ds or min(ds) > now:
                 break
-            self.room.tick(min(ds))
-            self.log += self.sleep.tick(min(ds), self.room)
-        self.log += self.sleep.tick(now, self.room)
+            out += self.person.tick(min(ds))
+            out += self.sleep.tick(min(ds), self.person)
+        out += self.person.tick(now)
+        out += self.sleep.tick(now, self.person)
+        self.log += out
+        return out
 
-    def feed(self, seconds: float, entity: str, state: str) -> None:
+    def feed(self, seconds: float, entity: str, state: str) -> list:
         self.tick(seconds)
-        e = StateEvent(t(seconds), entity, state)
-        self.room.feed(e)
-        self.log += self.sleep.feed(e, self.room)
+        ev = StateEvent(t(seconds), entity, state)
+        out = []
+        for slug, _ in self.home.owners(entity):
+            ch = self.rooms[slug].feed(ev)
+            if ch is not None:
+                out += self.person.on_change(slug, ch)
+        out += self.sleep.feed(ev, self.person)
+        self.log += out
+        return out
 
 
 def in_bed(cfg=CFG) -> Rig:
     rig = Rig(cfg)
     for e in (MOVE, L1, L2, DOOR):
         rig.feed(0, e, "off")
-    if cfg.sleep_entities:
+    if cfg.rooms[0].spots[0].sleep_entities:
         rig.feed(0, L1, "on")
         rig.feed(0, L2, "on")
     rig.feed(0, ROOM, "on")
@@ -72,12 +77,13 @@ def test_still_in_bed_for_30_min_sleeps_backdated():
     rig = in_bed()
     rig.tick(1859)
     assert not rig.sleep.sleeping
-    assert rig.sleep.next_deadline(rig.room) == t(1860)
+    assert rig.sleep.next_deadline(rig.person) == t(1860)
     rig.tick(1860)
     assert rig.sleep.sleeping
     assert rig.sleep.since == t(60)
-    assert [(tr.at, tr.old, tr.new, tr.reason) for tr in rig.log] == [
-        (t(60), "bed", "sleeping", "sleep_still")
+    sleep_log = [tr for tr in rig.log if "asleep" in (tr.old, tr.new)]
+    assert [(tr.at, tr.old, tr.new, tr.reason) for tr in sleep_log] == [
+        (t(60), "bed", "asleep", "sleep_still")
     ]
 
 
@@ -134,9 +140,7 @@ def test_entities_off_before_bed_sleep_once_in_bed():
 
 
 def test_entity_route_does_not_reenter_after_wake():
-    cfg = EngineConfig(
-        fp2_room=ROOM, fp2_bed=BED, door_witnesses=(DOOR,), movement=MOVE, sleep_entities=(L1,)
-    )
+    cfg = home(bedroom(desk=False, exits=(DOOR,), stillness=MOVE, sleep_entities=(L1,)))
     rig = in_bed(cfg)
     rig.feed(100, L1, "off")
     assert rig.sleep.sleeping
@@ -179,14 +183,16 @@ def test_crossing_wakes():
     rig.feed(3000, DOOR, "on")
     rig.feed(3001, BED, "off")
     rig.feed(3002, ROOM, "off")
+    rig.tick(3032)  # the exit is decided after the move window
     assert not rig.sleep.sleeping
+    assert rig.log[-1].reason == "wake_left_bed"
 
 
 def test_no_movement_sensor_and_no_entities_never_sleeps():
-    rig = in_bed(EngineConfig(fp2_room=ROOM, fp2_bed=BED, door_witnesses=(DOOR,)))
+    rig = in_bed(home(bedroom(desk=False, exits=(DOOR,), stillness=None)))
     rig.tick(10 * 3600)
     assert not rig.sleep.sleeping
-    assert rig.sleep.next_deadline(rig.room) is None
+    assert rig.sleep.next_deadline(rig.person) is None
 
 
 def test_unavailable_movement_sensor_disables_stillness():

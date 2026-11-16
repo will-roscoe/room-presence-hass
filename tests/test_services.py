@@ -9,7 +9,7 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.room_presence.const import DOMAIN
 
-from .conftest import make_entry, setup
+from .conftest import setup
 
 
 async def call(hass, **data) -> None:
@@ -19,51 +19,65 @@ async def call(hass, **data) -> None:
 
 async def test_set_state_immediate_and_stored(hass, entry, hass_storage):
     await setup(hass, entry)
-    await call(hass, state="bed")
+    await call(hass, location="bed")
     coord = entry.runtime_data
-    assert coord.snapshot.location == "bed"
+    assert coord.snapshot.key == "bed"
     assert coord.snapshot.reason == "manual"
-    stored = hass_storage[f"{DOMAIN}.{entry.entry_id}.manual"]["data"]
-    assert [m["state"] for m in stored["calls"]] == ["bed"]
+    stored = hass_storage[f"{DOMAIN}.{entry.entry_id}.manual_v2"]["data"]
+    assert [(m["location"], m["activity"]) for m in stored["calls"]] == [("bed", None)]
 
 
 async def test_set_state_place(hass, entry):
     await setup(hass, entry)
-    await call(hass, state="uni")
-    assert entry.runtime_data.snapshot.location == "uni"
+    await call(hass, location="uni")
+    assert entry.runtime_data.snapshot.key == "uni"
+
+
+async def test_set_state_location_and_activity(hass, entry):
+    await setup(hass, entry)
+    await call(hass, activity="asleep")
+    assert entry.runtime_data.snapshot.key == "bed:asleep"
+    await call(hass, location="desk", activity="awake")
+    assert entry.runtime_data.snapshot.key == "desk"
 
 
 async def test_set_state_delay_and_cancel(hass, entry, freezer):
     await setup(hass, entry)
-    await call(hass, state="bed", delay=60)
-    await call(hass, state="desk", delay=30)
+    await call(hass, location="bed", delay=60)
+    await call(hass, location="desk", delay=30)
     coord = entry.runtime_data
-    assert coord.snapshot.location == "away"
+    assert coord.snapshot.key == "home"
     freezer.tick(timedelta(seconds=31))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
-    assert coord.snapshot.location == "desk"
+    assert coord.snapshot.key == "desk"
     freezer.tick(timedelta(seconds=60))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
-    assert coord.snapshot.location == "desk"
+    assert coord.snapshot.key == "desk"
 
 
-async def test_set_state_requires_entry_id_with_two_entries(hass, entry):
-    other = make_entry(hass, title="Guest")
-    await setup(hass, entry)  # loading the integration sets up both entries
-    assert other.runtime_data is not None
-    with pytest.raises(ServiceValidationError):
-        await call(hass, state="bed")
-    await call(hass, state="bed", config_entry_id=other.entry_id)
-    assert other.runtime_data.snapshot.location == "bed"
-    assert entry.runtime_data.snapshot.location == "away"
-
-
-@pytest.mark.parametrize("bad", ["unknown", "office"])
-async def test_set_state_rejects_bad_state(hass, entry, bad):
+@pytest.mark.parametrize(
+    ("data", "key"),
+    [
+        ({}, "nothing_to_set"),
+        ({"location": "office"}, "invalid_location"),
+        ({"location": "unknown"}, "invalid_location"),
+        ({"activity": "showering"}, "invalid_activity"),
+    ],
+)
+async def test_set_state_errors(hass, entry, data, key):
     await setup(hass, entry)
     before = entry.runtime_data.snapshot
-    with pytest.raises(ServiceValidationError):
-        await call(hass, state=bad)
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, **data)
+    assert err.value.translation_key == key
     assert entry.runtime_data.snapshot == before
+
+
+async def test_set_state_not_loaded(hass, entry):
+    await setup(hass, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, location="bed")
+    assert err.value.translation_key == "not_loaded"

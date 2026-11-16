@@ -1,4 +1,4 @@
-"""Places outside the room, matched from the phone's Wi-Fi network (SSID) and HA zone."""
+"""Places outside the home, matched from the phone's Wi-Fi network (SSID) and HA zone."""
 
 from __future__ import annotations
 
@@ -14,9 +14,8 @@ MEANINGLESS_SSIDS = frozenset({"", "not connected", "<not connected>", "unavaila
 class Place:
     """A configured place.
 
-    ``ssids`` and ``zones`` (zone entity ids such as ``zone.uni``) are the evidence; ``mode``
+    ``ssids`` and ``zones`` (zone entity ids such as ``zone.office``) are the evidence; ``mode``
     ``any`` needs one of them, ``all`` needs an SSID and a zone at once. Lower ``priority`` wins.
-    ``on_site`` marks places inside the home building (they count as home, never as off-site).
     """
 
     slug: str
@@ -25,7 +24,6 @@ class Place:
     zones: tuple[str, ...] = ()
     mode: Literal["any", "all"] = "any"
     priority: int = 0
-    on_site: bool = False
 
 
 def _clean_ssid(ssid: str | None) -> str | None:

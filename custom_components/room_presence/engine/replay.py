@@ -1,11 +1,11 @@
-"""Replay recorded history through a :class:`~.machine.PresenceMachine`.
+"""Replay recorded history through a :class:`~.home.HomeMachine`.
 
 The replay tests and the startup rebuild both use these two functions:
 
 .. code-block:: python
 
-    events = history_events({"binary_sensor.fp2_room": [["2000-01-03T18:40:35+00:00", "on"]]})
-    transitions = replay(PresenceMachine(cfg, places), events, until=now)
+    events = history_events({"binary_sensor.bedroom": [["2000-01-03T18:40:35+00:00", "on"]]})
+    transitions = replay(HomeMachine(home, places), events, until=now)
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 
-from .machine import PresenceMachine
+from .home import HomeMachine
 from .types import ManualEvent, StateEvent, Transition
 
 
@@ -40,11 +40,11 @@ def history_events(
 
 
 def replay(
-    machine: PresenceMachine,
+    machine: HomeMachine,
     events: Iterable[StateEvent | ManualEvent],
     until: datetime | None = None,
 ) -> list[Transition]:
-    """Feed ``events`` (time order) into ``machine`` and return its location transitions.
+    """Feed ``events`` (time order) into ``machine`` and return its status transitions.
 
     Deadlines between events run as the machine is fed; with ``until``, deadlines up to that time
     run after the last event. A :class:`~.types.ManualEvent` the machine rejects is skipped.

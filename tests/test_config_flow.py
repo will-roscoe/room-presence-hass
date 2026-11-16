@@ -1,147 +1,320 @@
-"""Config flow, options flow and the place subentry flow."""
+"""Config flow (home and person), reconfigure, options, and the person, room and place subentry
+flows."""
 
-from homeassistant import config_entries
+from homeassistant.config_entries import SOURCE_USER
 from homeassistant.data_entry_flow import FlowResultType
-import voluptuous as vol
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.room_presence.const import (
-    CONF_BATHROOM,
-    CONF_CROSSING_WINDOW,
-    CONF_DOOR_WITNESSES,
-    CONF_FP2_BED,
-    CONF_FP2_ROOM,
-    CONF_NAME,
-    CONF_PHONE_TRACKER,
-    DEFAULTS,
-    DOMAIN,
-)
+from custom_components.room_presence.const import DOMAIN
 
-from .conftest import BED, DOOR, ROOM, THP_DOOR, TRACKER, setup
+from .conftest import BATH, BED, DESK, DOOR, HUM, PERSON, ROOM, THP_ROOM, TRACKER, make_entry, setup
 
 
-async def start_user(hass):
-    return await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
+def suggested(result, key: str):
+    for marker in result["data_schema"].schema:
+        if marker == key:
+            return (marker.description or {}).get("suggested_value")
+    raise KeyError(key)
+
+
+async def start_home(hass):
+    return await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+
+
+async def test_user_flow_creates_entry_and_person(hass, inputs):
+    result = await start_home(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"person": PERSON, "home_zone": "zone.home", "home_ssids": ["HallsNet"]},
+    )
+    assert result["step_id"] == "ssids"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"ssid_sensors": ["sensor.pollux_ssid"]}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Home"
+    assert result["data"] == {"home_zone": "zone.home", "home_ssids": ["HallsNet"]}
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.version == 2
+    (person,) = entry.subentries.values()
+    assert person.subentry_type == "person"
+    assert person.title == "Will"
+    assert person.unique_id == PERSON
+    assert dict(person.data) == {"person": PERSON, "ssid_sensors": ["sensor.pollux_ssid"]}
+
+
+async def test_user_flow_suggests_ssid_sensors(hass, inputs):
+    owner = MockConfigEntry(domain="mobile_app")
+    owner.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=owner.entry_id, identifiers={("mobile_app", "vega")}
+    )
+    ents = er.async_get(hass)
+    ents.async_get_or_create(
+        "device_tracker", "mobile_app", "t", suggested_object_id="vega", device_id=device.id
+    )
+    ents.async_get_or_create(
+        "sensor", "mobile_app", "s", suggested_object_id="vega_ssid", device_id=device.id
+    )
+    result = await start_home(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"person": PERSON, "home_zone": "zone.home"}
+    )
+    assert suggested(result, "ssid_sensors") == ["sensor.vega_ssid"]
+
+
+async def test_single_instance(hass, entry):
+    result = await start_home(hass)
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "single_instance_allowed"
+
+
+async def test_reconfigure_home(hass, entry):
+    await setup(hass, entry)
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["step_id"] == "reconfigure"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"home_zone": "zone.uni", "home_ssids": []}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert dict(entry.data) == {"home_zone": "zone.uni", "home_ssids": []}
+
+
+async def test_options_round_trip(hass, entry):
+    await setup(hass, entry)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "init"
+    values = {
+        "crossing_window": 45,
+        "move_window": 20,
+        "recently_left_duration": 300,
+        "sleep_quiet": 1800,
+        "wake_on_time": 8,
+        "bed_leave_grace": 20,
+        "exit_pre_window": 180,
+        "exit_quiet": 180,
+        "exit_door_on_time": 8,
+        "entry_window": 90,
+        "exclusive_quiet": 90,
+        "shower_window": 900,
+        "shower_end": 180,
+        "shower_rise": 7.5,
+        "rebuild_lookback": 12,
+        "entry_needs_crossing": True,
+    }
+    result = await hass.config_entries.options.async_configure(result["flow_id"], values)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options == values
+    timings = entry.runtime_data.home.timings
+    assert timings.crossing_window.total_seconds() == 45
+    assert timings.shower_rise == 7.5
+
+
+async def start_sub(hass, entry, kind: str):
+    return await hass.config_entries.subentries.async_init(
+        (entry.entry_id, kind), context={"source": SOURCE_USER}
     )
 
 
-USER_INPUT = {
-    CONF_NAME: "Will",
-    CONF_FP2_ROOM: ROOM,
-    CONF_FP2_BED: BED,
-    CONF_DOOR_WITNESSES: [DOOR, THP_DOOR],
-    CONF_PHONE_TRACKER: TRACKER,
+async def configure_sub(hass, result, data):
+    return await hass.config_entries.subentries.async_configure(result["flow_id"], data)
+
+
+async def test_person_subentry_add_aborts(hass, entry):
+    await setup(hass, entry)
+    result = await start_sub(hass, entry, "person")
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "single_person"
+
+
+async def test_person_subentry_reconfigure(hass, entry):
+    await setup(hass, entry)
+    person = next(s for s in entry.subentries.values() if s.subentry_type == "person")
+    result = await entry.start_subentry_reconfigure_flow(hass, person.subentry_id)
+    assert result["step_id"] == "reconfigure"
+    result = await configure_sub(hass, result, {"person": PERSON, "ssid_sensors": []})
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.subentries[person.subentry_id].data["ssid_sensors"] == []
+
+
+ROOM_FORM = {
+    "name": "Lounge",
+    "presence": ["binary_sensor.lounge"],
+    "motion": [],
+    "exits": [],
+    "bathroom": False,
+    "exclusive": False,
 }
 
 
-async def test_user_step_creates_entry(hass, inputs):
-    result = await start_user(hass)
-    assert result["type"] is FlowResultType.FORM
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Will"
-    assert result["data"][CONF_DOOR_WITNESSES] == [DOOR, THP_DOOR]
-    assert result["data"][CONF_FP2_BED] == BED
-
-
-async def test_door_witness_required(hass, inputs):
-    result = await start_user(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {**USER_INPUT, CONF_DOOR_WITNESSES: []}
-    )
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {CONF_DOOR_WITNESSES: "door_witness_required"}
-
-
-async def test_same_fp2_room_twice_aborts(hass, entry):
-    hass.config_entries.async_update_entry(entry, unique_id=ROOM)
-    result = await start_user(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
-    assert result["type"] is FlowResultType.ABORT
-
-
-async def test_options_defaults_match_spec(hass, entry):
+async def test_room_flow_with_spots_and_bed(hass, entry):
     await setup(hass, entry)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    defaults = {
-        str(k): k.default() for k in result["data_schema"].schema if k.default is not vol.UNDEFINED
-    }
-    assert defaults == DEFAULTS
+    result = await start_sub(hass, entry, "room")
+    assert result["step_id"] == "user"
+    result = await configure_sub(hass, result, ROOM_FORM)
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "spots"
+    result = await configure_sub(hass, result, {"next_step_id": "add_spot"})
+    assert result["step_id"] == "spot"
+    result = await configure_sub(
+        hass, result, {"name": "Sofa", "sensor": "binary_sensor.sofa", "role": "none"}
+    )
+    assert result["step_id"] == "spots"
+    result = await configure_sub(hass, result, {"next_step_id": "add_spot"})
+    result = await configure_sub(
+        hass, result, {"name": "Day bed", "sensor": "binary_sensor.daybed", "role": "bed"}
+    )
+    assert result["step_id"] == "spot_bed"
+    result = await configure_sub(hass, result, {"stillness": THP_ROOM, "sleep_entities": []})
+    assert result["step_id"] == "spots"
+    result = await configure_sub(hass, result, {"next_step_id": "finish"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    room = next(s for s in entry.subentries.values() if s.title == "Lounge")
+    assert room.subentry_type == "room"
+    assert [(s["name"], s["role"]) for s in room.data["spots"]] == [
+        ("Sofa", None),
+        ("Day bed", "bed"),
+    ]
+    assert room.data["spots"][1]["stillness"] == THP_ROOM
+    assert room.data["humidity"] is None
 
 
-async def test_options_change_reloads(hass, entry):
+async def test_room_flow_bathroom_asks_humidity(hass, entry):
+    await setup(hass, entry)
+    result = await start_sub(hass, entry, "room")
+    result = await configure_sub(
+        hass, result, {**ROOM_FORM, "name": "Shower room", "bathroom": True, "exclusive": True}
+    )
+    assert result["step_id"] == "humidity"
+    result = await configure_sub(hass, result, {"humidity": HUM})
+    assert result["step_id"] == "spots"
+    result = await configure_sub(hass, result, {"next_step_id": "finish"})
+    room = next(s for s in entry.subentries.values() if s.title == "Shower room")
+    assert (room.data["bathroom"], room.data["exclusive"], room.data["humidity"]) == (
+        True,
+        True,
+        HUM,
+    )
+
+
+@pytest.mark.parametrize(
+    ("form", "field", "error"),
+    [
+        ({"name": "Home"}, "name", "name_reserved"),
+        ({"name": "Just left"}, "name", "name_reserved"),
+        ({"name": "Bedroom"}, "name", "name_taken"),
+        ({"name": "Bed"}, "name", "name_taken"),
+        ({"name": "Uni"}, "name", "name_taken"),
+        ({"presence": []}, "presence", "presence_required"),
+    ],
+)
+async def test_room_flow_errors(hass, entry, form, field, error):
+    await setup(hass, entry)
+    result = await start_sub(hass, entry, "room")
+    result = await configure_sub(hass, result, {**ROOM_FORM, **form})
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {field: error}
+
+
+async def test_spot_name_errors(hass, entry):
+    await setup(hass, entry)
+    result = await start_sub(hass, entry, "room")
+    result = await configure_sub(hass, result, ROOM_FORM)
+    result = await configure_sub(hass, result, {"next_step_id": "add_spot"})
+    result = await configure_sub(
+        hass, result, {"name": "Sofa", "sensor": "binary_sensor.sofa", "role": "none"}
+    )
+    result = await configure_sub(hass, result, {"next_step_id": "add_spot"})
+    for name, error in (
+        ("Sofa", "spot_name_taken"),
+        ("Desk", "name_taken"),
+        ("Away", "name_reserved"),
+    ):
+        result = await configure_sub(
+            hass, result, {"name": name, "sensor": "binary_sensor.x", "role": "none"}
+        )
+        assert result["errors"] == {"name": error}
+
+
+async def test_room_reconfigure_reorders_and_removes_spots(hass, entry):
+    await setup(hass, entry)
+    bedroom = next(s for s in entry.subentries.values() if s.title == "Bedroom")
+    result = await entry.start_subentry_reconfigure_flow(hass, bedroom.subentry_id)
+    assert result["step_id"] == "reconfigure"
+    assert suggested(result, "presence") == [ROOM]
+    data = dict(bedroom.data)
+    form = {k: data[k] for k in ("name", "presence", "motion", "exits", "bathroom", "exclusive")}
+    result = await configure_sub(hass, result, form)
+    assert result["step_id"] == "spots"
+    result = await configure_sub(hass, result, {"next_step_id": "move_spot_up"})
+    result = await configure_sub(hass, result, {"spot": "Desk"})
+    assert result["step_id"] == "spots"
+    result = await configure_sub(hass, result, {"next_step_id": "edit_spot"})
+    result = await configure_sub(hass, result, {"spot": "Desk"})
+    assert result["step_id"] == "spot"
+    result = await configure_sub(hass, result, {"name": "Desk", "sensor": DOOR, "role": "none"})
+    result = await configure_sub(hass, result, {"next_step_id": "finish"})
+    assert result["reason"] == "reconfigure_successful"
+    spots = entry.subentries[bedroom.subentry_id].data["spots"]
+    assert [(s["name"], s["sensor"]) for s in spots] == [("Desk", DOOR), ("Bed", BED)]
+    result = await entry.start_subentry_reconfigure_flow(hass, bedroom.subentry_id)
+    result = await configure_sub(hass, result, form)
+    result = await configure_sub(hass, result, {"next_step_id": "remove_spot"})
+    result = await configure_sub(hass, result, {"spot": "Desk"})
+    result = await configure_sub(hass, result, {"next_step_id": "finish"})
+    spots = entry.subentries[bedroom.subentry_id].data["spots"]
+    assert [s["name"] for s in spots] == ["Bed"]
+
+
+PLACE_FORM = {"name": "Gym", "ssids": ["GymWiFi"], "zones": [], "mode": "any", "priority": 0}
+
+
+async def test_place_flow(hass, entry):
+    await setup(hass, entry)
+    result = await start_sub(hass, entry, "place")
+    result = await configure_sub(hass, result, PLACE_FORM)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    place = next(s for s in entry.subentries.values() if s.title == "Gym")
+    assert "on_site" not in place.data
+
+
+@pytest.mark.parametrize(
+    ("form", "field", "error"),
+    [
+        ({"name": "Bedroom"}, "name", "name_taken"),
+        ({"name": "Desk"}, "name", "name_taken"),
+        ({"name": "Away"}, "name", "name_reserved"),
+        ({"ssids": [], "zones": []}, "base", "place_needs_ssid_or_zone"),
+    ],
+)
+async def test_place_flow_errors(hass, entry, form, field, error):
+    await setup(hass, entry)
+    result = await start_sub(hass, entry, "place")
+    result = await configure_sub(hass, result, {**PLACE_FORM, **form})
+    assert result["errors"] == {field: error}
+
+
+async def test_subentry_change_reloads(hass, entry):
     await setup(hass, entry)
     before = entry.runtime_data
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    bath = "binary_sensor.tuya_thp_2_presence"
-    user = {**DEFAULTS, CONF_CROSSING_WINDOW: 45, CONF_BATHROOM: bath}
-    result = await hass.config_entries.options.async_configure(result["flow_id"], user)
+    result = await start_sub(hass, entry, "place")
+    await configure_sub(hass, result, PLACE_FORM)
     await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.runtime_data is not before
-    assert entry.runtime_data.cfg.crossing_window.total_seconds() == 45
-    assert entry.runtime_data.cfg.bathroom == bath
+    assert [p.slug for p in entry.runtime_data.places] == ["uni", "gym"]
 
 
-PLACE = {
-    "name": "Building",
-    "ssids": ["HallsNet"],
-    "zones": [],
-    "mode": "any",
-    "priority": 1,
-    "on_site": True,
-}
+async def test_entry_without_rooms_sets_up(hass, inputs):
+    e = make_entry(hass, rooms=(), places=())
+    await setup(hass, e)
+    assert e.runtime_data.snapshot.key == "home"
 
 
-async def add_place(hass, entry, data):
-    result = await hass.config_entries.subentries.async_init(
-        (entry.entry_id, "place"), context={"source": config_entries.SOURCE_USER}
-    )
-    assert result["type"] is FlowResultType.FORM
-    result = await hass.config_entries.subentries.async_configure(result["flow_id"], data)
-    await hass.async_block_till_done()
-    return result
-
-
-async def test_place_subentry_create_edit_delete(hass, entry):
-    await setup(hass, entry)
-    result = await add_place(hass, entry, PLACE)
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    slugs = {p.slug: p for p in entry.runtime_data.places}
-    assert set(slugs) == {"uni", "building"}
-    assert slugs["building"].on_site is True
-
-    sub_id = next(s for s, sub in entry.subentries.items() if sub.title == "Building")
-    result = await hass.config_entries.subentries.async_init(
-        (entry.entry_id, "place"),
-        context={"source": config_entries.SOURCE_RECONFIGURE, "subentry_id": sub_id},
-    )
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**PLACE, "ssids": ["HallsNet", "HallsNet-5G"]}
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.ABORT
-    building = next(p for p in entry.runtime_data.places if p.slug == "building")
-    assert building.ssids == ("HallsNet", "HallsNet-5G")
-
-    hass.config_entries.async_remove_subentry(entry, sub_id)
-    await hass.async_block_till_done()
-    assert {p.slug for p in entry.runtime_data.places} == {"uni"}
-
-
-async def test_place_name_reserved(hass, entry):
-    await setup(hass, entry)
-    result = await add_place(hass, entry, {**PLACE, "name": "Away"})
-    assert result["errors"] == {"name": "place_name_reserved"}
-
-
-async def test_place_name_taken(hass, entry):
-    await setup(hass, entry)
-    result = await add_place(hass, entry, {**PLACE, "name": "UNI"})
-    assert result["errors"] == {"name": "place_name_taken"}
-
-
-async def test_place_needs_ssid_or_zone(hass, entry):
-    await setup(hass, entry)
-    result = await add_place(hass, entry, {**PLACE, "ssids": [], "zones": []})
-    assert result["errors"] == {"base": "place_needs_ssid_or_zone"}
+def test_shared_constants():
+    assert BATH and DESK and TRACKER  # the fixtures used across the flow tests exist

@@ -13,7 +13,7 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
 
 from custom_components.room_presence.const import DOMAIN
 
-from .conftest import BED, DESK, DOOR, INPUTS, ROOM, SSID, THP_DOOR, TRACKER, make_entry, setup
+from .conftest import BED, DESK, INPUTS, PERSON, ROOM, SSID, THP_DOOR, TRACKER, make_entry, setup
 
 
 @pytest.fixture
@@ -48,14 +48,14 @@ class History:
         self.hass, self.freezer = hass, freezer
         self.now = dt_util.utcnow()
 
-    def at(self, ago: timedelta, entity: str, state: str) -> None:
+    def at(self, ago: timedelta, entity: str, state: str, **attrs) -> None:
         self.freezer.move_to(self.now - ago)
-        self.hass.states.async_set(entity, state)
+        self.hass.states.async_set(entity, state, attrs or None)
 
-    def quiet_start(self, ago: timedelta, fp2: str = "off") -> None:
+    def quiet_start(self, ago: timedelta, presence: str = "off", person: str = "home") -> None:
         for e in INPUTS:
-            self.at(ago, e, fp2 if e in (ROOM, BED, DESK, DOOR) else "off")
-        self.at(ago, TRACKER, "home")
+            self.at(ago, e, presence if e == ROOM else "off")
+        self.at(ago, PERSON, person, device_trackers=[TRACKER])
         self.at(ago, SSID, "Not Connected")
 
     async def done(self) -> None:
@@ -65,6 +65,12 @@ class History:
 
 H = timedelta(hours=1)
 M = timedelta(minutes=1)
+
+
+def store(hass_storage, entry, *calls) -> str:
+    key = f"{DOMAIN}.{entry.entry_id}.manual_v2"
+    hass_storage[key] = {"version": 1, "key": key, "data": {"calls": list(calls)}}
+    return key
 
 
 async def test_rebuild_holds_bed_through_dropout(recorder_mock, hass, freezer):
@@ -78,7 +84,7 @@ async def test_rebuild_holds_bed_through_dropout(recorder_mock, hass, freezer):
     entry = make_entry(hass)
     await setup(hass, entry)
     snap = entry.runtime_data.snapshot
-    assert snap.location in ("bed", "sleeping")
+    assert snap.key in ("bed", "bed:asleep")
     assert snap.held
 
 
@@ -94,8 +100,8 @@ async def test_rebuild_detects_exit_in_history(recorder_mock, hass, freezer):
     await h.done()
     entry = make_entry(hass)
     await setup(hass, entry)
-    assert entry.runtime_data.snapshot.location == "away"
-    assert [tr.new for tr in entry.runtime_data.transitions][-2:] == ["recently_left", "away"]
+    assert entry.runtime_data.snapshot.key == "away"
+    assert [tr.new for tr in entry.runtime_data.transitions][-2:] == ["just_left", "away"]
 
 
 async def test_rebuild_applies_stored_manual_event(recorder_mock, hass, freezer, hass_storage):
@@ -103,13 +109,10 @@ async def test_rebuild_applies_stored_manual_event(recorder_mock, hass, freezer,
     h.quiet_start(3 * H)
     await h.done()
     entry = make_entry(hass)
-    hass_storage[f"{DOMAIN}.{entry.entry_id}.manual"] = {
-        "version": 1,
-        "key": f"{DOMAIN}.{entry.entry_id}.manual",
-        "data": {"calls": [{"at": (h.now - 20 * M).isoformat(), "state": "bed"}]},
-    }
+    at = (h.now - 20 * M).isoformat()
+    store(hass_storage, entry, {"at": at, "location": "bed", "activity": None})
     await setup(hass, entry)
-    assert entry.runtime_data.snapshot.location == "bed"
+    assert entry.runtime_data.snapshot.key == "bed"
 
 
 async def test_rebuild_drops_manual_events_older_than_lookback(
@@ -119,26 +122,35 @@ async def test_rebuild_drops_manual_events_older_than_lookback(
     h.quiet_start(3 * H)
     await h.done()
     entry = make_entry(hass)
-    key = f"{DOMAIN}.{entry.entry_id}.manual"
-    hass_storage[key] = {
-        "version": 1,
-        "key": key,
-        "data": {"calls": [{"at": (h.now - 25 * H).isoformat(), "state": "bed"}]},
-    }
+    at = (h.now - 25 * H).isoformat()
+    key = store(hass_storage, entry, {"at": at, "location": "bed", "activity": None})
     await setup(hass, entry)
-    assert entry.runtime_data.snapshot.location == "away"
+    assert entry.runtime_data.snapshot.key == "home"
     assert hass_storage[key]["data"]["calls"] == []
 
 
-async def test_rebuild_unknown_without_fp2_history(recorder_mock, hass, freezer):
+async def test_stored_manual_for_deleted_room_skipped_on_rebuild(
+    recorder_mock, hass, freezer, hass_storage
+):
     h = History(hass, freezer)
-    h.quiet_start(3 * H, fp2="unavailable")
+    h.quiet_start(3 * H)
+    await h.done()
+    entry = make_entry(hass)
+    at = (h.now - 20 * M).isoformat()
+    store(hass_storage, entry, {"at": at, "location": "kitchen", "activity": None})
+    await setup(hass, entry)
+    assert entry.runtime_data.snapshot.key == "home"
+
+
+async def test_rebuild_unknown_without_presence_history(recorder_mock, hass, freezer):
+    h = History(hass, freezer)
+    h.quiet_start(3 * H, presence="unavailable", person="unavailable")
     await h.done()
     entry = make_entry(hass)
     await setup(hass, entry)
     snap = entry.runtime_data.snapshot
-    assert snap.location == "unknown"
-    assert snap.degraded
+    assert snap.key == "unknown"
+    assert "bedroom" in snap.degraded
 
 
 async def test_old_offsite_ssid_does_not_override_newer_detection(recorder_mock, hass, freezer):
@@ -152,8 +164,7 @@ async def test_old_offsite_ssid_does_not_override_newer_detection(recorder_mock,
     await h.done()
     entry = make_entry(hass)
     await setup(hass, entry)
-    snap = entry.runtime_data.snapshot
-    assert snap.location in ("bed", "sleeping")
+    assert entry.runtime_data.snapshot.key in ("bed", "bed:asleep")
 
 
 async def test_history_read_failure_falls_back_to_current_states(
@@ -171,4 +182,4 @@ async def test_history_read_failure_falls_back_to_current_states(
     await h.done()
     entry = make_entry(hass)
     await setup(hass, entry)
-    assert entry.runtime_data.snapshot.location == "room"
+    assert entry.runtime_data.snapshot.key == "bedroom"

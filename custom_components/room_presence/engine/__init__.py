@@ -1,17 +1,39 @@
 """Pure presence engine: every room_presence rule, with no Home Assistant imports.
 
-Feed it :class:`~.types.StateEvent` and :class:`~.types.ManualEvent` objects in time order and read
-the transitions it returns and its snapshot.
+Build a :class:`HomeMachine` from a :class:`HomeConfig` and the places, feed it
+:class:`StateEvent` and :class:`ManualEvent` objects in time order (or use :func:`replay`), and read
+the transitions it returns and its :class:`Snapshot`.
 """
 
-from .types import EngineConfig, ManualEvent, RoomState, Snapshot, StateEvent, Sub, Transition
+from .home import HomeMachine
+from .places import Place
+from .replay import history_events, replay
+from .types import (
+    Activity,
+    HomeConfig,
+    ManualEvent,
+    Presence,
+    RoomConfig,
+    Snapshot,
+    SpotConfig,
+    StateEvent,
+    Timings,
+    Transition,
+)
 
 __all__ = [
-    "EngineConfig",
+    "Activity",
+    "HomeConfig",
+    "HomeMachine",
     "ManualEvent",
-    "RoomState",
+    "Place",
+    "Presence",
+    "RoomConfig",
     "Snapshot",
+    "SpotConfig",
     "StateEvent",
-    "Sub",
+    "Timings",
     "Transition",
+    "history_events",
+    "replay",
 ]

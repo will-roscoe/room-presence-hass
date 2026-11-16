@@ -1,14 +1,16 @@
 set_state:
   fields:
-    config_entry_id:
-      selector:
-        config_entry:
-          integration: room_presence
-    state:
-      required: true
+    location:
       example: bed
       selector:
         text:
+    activity:
+      selector:
+        select:
+          options:
+            - asleep
+            - awake
+          translation_key: activity
     delay:
       example: 60
       selector:

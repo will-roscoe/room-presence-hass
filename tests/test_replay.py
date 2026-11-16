@@ -1,7 +1,9 @@
-"""Replay recorded days through the engine and check the labelled exits, still gaps and sleeps.
+"""Replay recorded days through the home engine and check the labelled exits, sleeps and showers.
 
-Fixtures are real sensor history, time-shifted by whole days: ``fp2_day.json`` starts on
-2000-01-03 (D0) and ``fallback_day.json`` on 2000-01-10. Times below are UTC.
+Fixtures are real sensor history, time-shifted. ``fp2_day.json`` starts on 2000-01-03 (D0) and
+``fallback_day.json`` on 2000-01-10 (v0.1 shift). ``showers.json``, ``absence.json``,
+``bathroom_test.json`` and ``evening.json`` are shifted from November 2026 to February 2000 with the
+same day of month and clock time. Times below are UTC.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -10,35 +12,24 @@ from pathlib import Path
 
 import pytest
 
-from custom_components.room_presence.engine.machine import PresenceMachine
-from custom_components.room_presence.engine.replay import history_events, replay
-from custom_components.room_presence.engine.types import (
-    EngineConfig,
+from custom_components.room_presence.engine import (
+    HomeMachine,
     ManualEvent,
     StateEvent,
     Transition,
+    history_events,
+    replay,
 )
+from custom_components.room_presence.engine.rooms import RoomSensors
+from custom_components.room_presence.engine.shower import ShowerTracker
+from tests.homes import LIVE, THP, bathroom, bedroom, home
 
 FIXTURES = Path(__file__).parent / "fixtures"
-FP2 = "binary_sensor.aqara_fp2_{}_presence"
-THP = "binary_sensor.tuya_thp_{}_presence"
-IN_ROOM = {"bed", "desk", "room", "bathroom", "sleeping"}
+ROOM_LOCATIONS = {"bedroom", "bed", "desk", "bathroom"}
 
-FP2_CFG = EngineConfig(
-    fp2_room=FP2.format("room"),
-    fp2_bed=FP2.format("bed"),
-    fp2_desk=FP2.format("desk"),
-    door_witnesses=(FP2.format("door"), THP.format(3)),
-    movement=THP.format(1),
-)
-FALLBACK_CFG = EngineConfig(
-    fp2_room=FP2.format("room"),
-    fp2_bed=FP2.format("bed"),
-    fp2_desk=FP2.format("desk"),
-    door_witnesses=(FP2.format("door"), THP.format(3)),
-    bathroom=THP.format(2),
-    movement=THP.format(1),
-    fallback_motion=(THP.format(1), THP.format(4)),
+FP2_HOME = home(bedroom())
+FALLBACK_HOME = home(
+    bedroom(motion=(THP.format(1), THP.format(4))), bathroom(exclusive=False, humidity=None)
 )
 
 
@@ -47,19 +38,31 @@ def at(day: int, hms: str, base: datetime = datetime(2000, 1, 3, tzinfo=UTC)) ->
     return base + timedelta(days=day, hours=h, minutes=m, seconds=s[0] if s else 0)
 
 
+def feb(day: int, hms: str) -> datetime:
+    return at(day - 1, hms, datetime(2000, 2, 1, tzinfo=UTC))
+
+
+def in_room(key: str) -> bool:
+    return key.split(":")[0] in ROOM_LOCATIONS
+
+
+def asleep(key: str) -> bool:
+    return key.endswith(":asleep")
+
+
 class Timeline:
-    """Location over effective time, from a replay's transitions."""
+    """Status key over effective time, from a replay's transitions."""
 
     def __init__(self, transitions: list[Transition]) -> None:
         self.trs = sorted(transitions, key=lambda tr: tr.at)
 
     def at(self, when: datetime) -> str:
-        loc = "unknown"
+        key = "unknown"
         for tr in self.trs:
             if tr.at > when:
                 break
-            loc = tr.new
-        return loc
+            key = tr.new
+        return key
 
     def samples(self, start: datetime, end: datetime, step: float = 30):
         when = start
@@ -68,10 +71,13 @@ class Timeline:
             when += timedelta(seconds=step)
 
 
+def load(name: str) -> list[StateEvent]:
+    return history_events(json.loads((FIXTURES / name).read_text()))
+
+
 @pytest.fixture(scope="module")
 def fp2_day() -> Timeline:
-    history = json.loads((FIXTURES / "fp2_day.json").read_text())
-    return Timeline(replay(PresenceMachine(FP2_CFG, []), history_events(history)))
+    return Timeline(replay(HomeMachine(FP2_HOME, []), load("fp2_day.json")))
 
 
 # -- the replay functions ----------------------------------------------------------------------
@@ -88,32 +94,33 @@ def test_history_events_sorted_and_parsed():
     assert events[1].at == t1
 
 
-def test_replay_ticks_deadlines_between_events():
-    cfg = EngineConfig(fp2_room="r", door_witnesses=("d",))
-    t0 = datetime(2000, 1, 1, tzinfo=UTC)
-    events = [
-        StateEvent(t0, "r", "on"),
-        StateEvent(t0 + timedelta(seconds=40), "d", "on"),
-        StateEvent(t0 + timedelta(seconds=70), "r", "off"),
-        StateEvent(t0 + timedelta(hours=1), "d", "off"),
+def _exit_events(t0: datetime) -> list[StateEvent]:
+    room, door = bedroom().presence[0], bedroom().exits[0]
+    return [
+        StateEvent(t0, room, "on"),
+        StateEvent(t0, door, "off"),
+        StateEvent(t0 + timedelta(seconds=40), door, "on"),
+        StateEvent(t0 + timedelta(seconds=70), room, "off"),
+        StateEvent(t0 + timedelta(hours=1), door, "off"),
     ]
-    trs = replay(PresenceMachine(cfg, []), events)
+
+
+def test_replay_ticks_deadlines_between_events():
+    t0 = datetime(2000, 1, 1, tzinfo=UTC)
+    trs = replay(HomeMachine(home(bedroom(), person=None), []), _exit_events(t0))
     assert [(tr.new, tr.reason) for tr in trs] == [
-        ("room", "fp2_zone"),
-        ("recently_left", "crossing"),
-        ("away", "recently_left_expired"),
+        ("bedroom", "detected"),
+        ("just_left", "crossing"),
+        ("away", "just_left_expired"),
     ]
     assert trs[2].at == t0 + timedelta(seconds=340)
 
 
 def test_replay_until_runs_trailing_deadlines():
-    cfg = EngineConfig(fp2_room="r", door_witnesses=("d",))
     t0 = datetime(2000, 1, 1, tzinfo=UTC)
-    events = [StateEvent(t0, "r", "on"), StateEvent(t0, "d", "off")]
-    events += [StateEvent(t0 + timedelta(seconds=40), "d", "on")]
-    events += [StateEvent(t0 + timedelta(seconds=70), "r", "off")]
-    assert replay(PresenceMachine(cfg, []), events)[-1].new == "recently_left"
-    trs = replay(PresenceMachine(cfg, []), events, until=t0 + timedelta(hours=1))
+    events = _exit_events(t0)[:-1]
+    assert replay(HomeMachine(home(bedroom()), []), events)[-1].new == "bedroom"
+    trs = replay(HomeMachine(home(bedroom()), []), events, until=t0 + timedelta(hours=1))
     assert trs[-1].new == "away"
 
 
@@ -144,20 +151,19 @@ def test_fp2_day_exits(fp2_day, label):
     left = [
         tr
         for tr in fp2_day.trs
-        if tr.new == "recently_left" and start - timedelta(seconds=60) <= tr.at <= start
+        if tr.new == "just_left" and start - timedelta(seconds=60) <= tr.at <= start
     ]
-    assert left, f"exit {label}: no recently_left in the minute before {start:%H:%M:%S}"
+    assert left, f"exit {label}: no just_left in the minute before {start:%H:%M:%S}"
     inside = [
-        (w, loc)
-        for w, loc in fp2_day.samples(start + timedelta(seconds=5), end - timedelta(seconds=5), 1)
-        if loc in IN_ROOM
+        (w, key)
+        for w, key in fp2_day.samples(start + timedelta(seconds=5), end - timedelta(seconds=5), 1)
+        if in_room(key)
     ]
-    assert not inside, f"exit {label}: in room during the gap: {inside[:3]}"
-    # The return is an entry transition. Checked as a transition, not on the effective-time
-    # timeline: a short return (A's lasted 32 s) is hidden there by the next exit back-dating
-    # its recently_left to a door edge seen during the return.
+    assert not inside, f"exit {label}: in a room during the gap: {inside[:3]}"
+    # The return is an entry transition, checked as a transition: a short return (A's lasted
+    # 32 s) is hidden on the effective-time timeline by the next exit back-dating its just_left.
     back = [
-        tr for tr in fp2_day.trs if tr.new in IN_ROOM and end <= tr.at <= end + timedelta(seconds=5)
+        tr for tr in fp2_day.trs if in_room(tr.new) and end <= tr.at <= end + timedelta(seconds=5)
     ]
     assert back, f"exit {label}: no return within 5 s of {end:%H:%M:%S}"
 
@@ -165,26 +171,20 @@ def test_fp2_day_exits(fp2_day, label):
 @pytest.mark.parametrize("label", sorted(STILL))
 def test_fp2_day_still_gaps_stay_in_bed(fp2_day, label):
     start, end = STILL[label]
-    wrong = [(w, loc) for w, loc in fp2_day.samples(start, end) if loc not in ("bed", "sleeping")]
+    wrong = [(w, k) for w, k in fp2_day.samples(start, end) if k not in ("bed", "bed:asleep")]
     assert not wrong, f"still gap {label}: {wrong[:3]}"
 
 
 def test_fp2_day_nap(fp2_day):
-    wrong = [
-        (w, loc) for w, loc in fp2_day.samples(at(0, "20:08"), at(0, "20:52")) if loc != "sleeping"
-    ]
+    wrong = [(w, k) for w, k in fp2_day.samples(at(0, "20:08"), at(0, "20:52")) if not asleep(k)]
     assert not wrong, wrong[:3]
 
 
 def test_fp2_day_night_unbroken(fp2_day):
-    wrong = [
-        (w, loc) for w, loc in fp2_day.samples(at(1, "01:36"), at(1, "11:23")) if loc != "sleeping"
-    ]
+    wrong = [(w, k) for w, k in fp2_day.samples(at(1, "01:36"), at(1, "11:23")) if not asleep(k)]
     assert not wrong, wrong[:3]
     starts = [
-        tr.at
-        for tr in fp2_day.trs
-        if tr.new == "sleeping" and at(1, "00:30") <= tr.at <= at(1, "01:36")
+        tr.at for tr in fp2_day.trs if asleep(tr.new) and at(1, "00:30") <= tr.at <= at(1, "01:36")
     ]
     assert starts and at(1, "01:00") <= starts[-1] <= at(1, "01:35"), starts
 
@@ -192,23 +192,21 @@ def test_fp2_day_night_unbroken(fp2_day):
 def test_fp2_day_midday_sleep(fp2_day):
     # Labelled "asleep 12:29": the time the rule fires, 30 min after the last movement, which is
     # also where the night's 01:35 label sits. The transition itself is back-dated.
-    quiet = FP2_CFG.sleep_quiet
+    quiet = FP2_HOME.timings.sleep_quiet
     starts = [
-        tr.at
-        for tr in fp2_day.trs
-        if tr.new == "sleeping" and at(1, "11:30") <= tr.at <= at(1, "13:30")
+        tr.at for tr in fp2_day.trs if asleep(tr.new) and at(1, "11:30") <= tr.at <= at(1, "13:30")
     ]
     assert any(at(1, "12:28") <= s + quiet <= at(1, "12:31") for s in starts), starts
     ends = [
         tr.at
         for tr in fp2_day.trs
-        if tr.old == "sleeping" and at(1, "12:31") <= tr.at <= at(1, "14:30")
+        if asleep(tr.old) and not asleep(tr.new) and at(1, "12:31") <= tr.at <= at(1, "14:30")
     ]
     assert ends and at(1, "13:48") <= ends[0] <= at(1, "13:51"), ends
 
 
-def test_fp2_day_no_bathroom_without_sensor(fp2_day):
-    assert not [tr for tr in fp2_day.trs if tr.new == "bathroom"]
+def test_fp2_day_no_bathroom_without_bathroom_room(fp2_day):
+    assert not [tr for tr in fp2_day.trs if tr.new.startswith("bathroom")]
 
 
 # -- the fallback day (30-31 Oct, THP sensors only) --------------------------------------------
@@ -216,14 +214,67 @@ def test_fp2_day_no_bathroom_without_sensor(fp2_day):
 
 def test_fallback_day():
     base = datetime(2000, 1, 10, tzinfo=UTC)
-    history = json.loads((FIXTURES / "fallback_day.json").read_text())
-    events = [ManualEvent(at(0, "13:28:30", base), "room"), *history_events(history)]
-    m = PresenceMachine(FALLBACK_CFG, [])
+    events = [ManualEvent(at(0, "13:28:30", base), location="bedroom"), *load("fallback_day.json")]
+    m = HomeMachine(FALLBACK_HOME, [])
     trs = replay(m, events)
-    assert m.snapshot().degraded
-    left = [tr.at for tr in trs if tr.new == "recently_left"]
+    assert "bedroom" in m.snapshot().degraded
+    left = [tr.at for tr in trs if tr.new == "just_left"]
     assert len(left) == 2, left
     for got, want in zip(left, ("13:31:03", "15:30:32"), strict=True):
         assert abs(got - at(0, want, base)) <= timedelta(seconds=1), (got, want)
-    late = [tr for tr in trs if tr.at >= at(0, "15:36", base) and tr.new in IN_ROOM]
+    late = [tr for tr in trs if tr.at >= at(0, "15:36", base) and in_room(tr.new)]
     assert not late, late
+
+
+# -- November 2026 on the live configuration ---------------------------------------------------
+
+
+def test_showers_exactly_three():
+    room = LIVE.room("bathroom")
+    sensors, shower = RoomSensors(room, LIVE.timings), ShowerTracker(room, LIVE.timings)
+    starts = []
+    for ev in load("showers.json"):
+        shower.observe(ev)
+        starts += shower.tick(ev.at)
+        sensors.feed(ev)
+        starts += shower.feed(ev, sensors)
+    starts = [tr.at for tr in starts if tr.new == "showering"]
+    windows = [
+        (feb(9, "12:38"), feb(9, "12:58")),  # back-dated to the bathroom entry, 12:40:36
+        (feb(11, "11:33"), feb(11, "11:45")),
+        (feb(15, "22:05"), feb(15, "22:12")),
+    ]
+    assert len(starts) == 3, starts
+    for got, (lo, hi) in zip(starts, windows, strict=True):
+        assert lo <= got <= hi, (got, lo, hi)
+
+
+def live_timeline(name: str) -> Timeline:
+    return Timeline(replay(HomeMachine(LIVE, []), load(name)))
+
+
+def test_absence_no_detection():
+    tl = live_timeline("absence.json")
+    left = [tr.at for tr in tl.trs if tr.new == "just_left"]
+    assert any(abs(t - feb(11, "12:06:08")) <= timedelta(seconds=5) for t in left), left
+    inside = [(w, k) for w, k in tl.samples(feb(11, "12:07"), feb(11, "18:51:00")) if in_room(k)]
+    assert not inside, inside[:3]
+    assert in_room(tl.at(feb(11, "18:51:15")))
+
+
+def test_bathroom_test():
+    tl = live_timeline("bathroom_test.json")
+    pacing = list(tl.samples(feb(13, "12:34:00"), feb(13, "12:35:09"), 1))
+    assert not [(w, k) for w, k in pacing if k in ("just_left", "bathroom")], pacing
+    assert all(
+        k == "bathroom" for _, k in tl.samples(feb(13, "12:35:13"), feb(13, "12:36:03"), 1)
+    ), [(w, k) for w, k in tl.samples(feb(13, "12:35:13"), feb(13, "12:36:03"), 1)]
+    assert tl.at(feb(13, "12:36:08")) != "bathroom"
+
+
+def test_evening_shower_and_exclusive():
+    tl = live_timeline("evening.json")
+    showering = list(tl.samples(feb(15, "22:11"), feb(15, "22:19")))
+    assert all(k == "bathroom:showering" for _, k in showering), showering
+    assert tl.at(feb(15, "22:25")).split(":")[0] == "bathroom"
+    assert tl.at(feb(15, "22:30")).split(":")[0] == "bathroom"

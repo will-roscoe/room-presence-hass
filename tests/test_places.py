@@ -5,7 +5,7 @@ import pytest
 from custom_components.room_presence.engine.places import Place, match_place
 
 UNI = Place(slug="uni", name="Uni", ssids=("eduroam",), zones=("zone.uni",))
-BUILDING = Place(slug="building", name="Building", ssids=("HallsNet",), on_site=True)
+BUILDING = Place(slug="building", name="Building", ssids=("HallsNet",))
 
 
 def test_any_mode_matches_ssid_or_zone():
