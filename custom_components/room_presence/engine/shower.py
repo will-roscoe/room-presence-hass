@@ -43,10 +43,12 @@ class ShowerTracker:
         """When the current shower began (back-dated), else ``None``."""
         return self._since if self._showering else None
 
-    def feed(self, ev: StateEvent, sensors: RoomSensors) -> list[Transition]:
+    def feed(self, ev: StateEvent, sensors: RoomSensors, allowed: bool = True) -> list[Transition]:
         """Apply one event; only numeric readings of the room's humidity sensor count.
 
         :param sensors: this room's sensors, already fed ``ev``, for the presence-edge condition.
+        :param allowed: whether a shower may start now (``False`` while the person is out: the
+            readings are still kept, but a rise is someone else's).
         """
         value = self.observe(ev)
         out = self.tick(ev.at)
@@ -55,7 +57,7 @@ class ShowerTracker:
         at, window = ev.at, self.timings.shower_window
         self._readings.append((at, value))
         self._readings = [(t, v) for t, v in self._readings if t >= at - window]
-        if self._showering:
+        if self._showering or not allowed:
             return out
         low = min(v for _, v in self._readings)
         if value - low < self.timings.shower_rise:

@@ -126,6 +126,7 @@ class HomeMachine:
         elif ev.entity_id in self.home.ssid_sensors:
             self._on_ssid(at, ev.entity_id, ev.state)
         layer += self._phone_override(at)
+        layer = self._end_left_showers(at) + layer
         for sleep in self.sleeps:
             layer += sleep.feed(ev, self.person)
         return out + self._emit(layer, at)
@@ -136,6 +137,7 @@ class HomeMachine:
         while (d := self.next_deadline()) is not None and d <= now:
             self._advance(d)
             layer = self.person.tick(d)
+            layer = self._end_left_showers(d) + layer
             for shower in self.showers.values():
                 ended = shower.tick(d)
                 if ended:
@@ -222,12 +224,32 @@ class HomeMachine:
                 self.person.unpin(ev.at)
                 continue
             was = shower.showering
-            trs = shower.feed(ev, self.rooms[slug])
+            trs = shower.feed(ev, self.rooms[slug], allowed=self._may_shower())
             if trs and was and not shower.showering:
                 self.person.unpin(ev.at)
             if shower.showering and not was:
                 out += self.person.pin(ev.at, slug)
             out += trs
+        return out
+
+    def _may_shower(self) -> bool:
+        """A shower can start only while the person is in a room or nothing is known yet."""
+        return self.person.presence in (Presence.IN_ROOM, Presence.UNKNOWN)
+
+    def _end_left_showers(self, at: datetime) -> list[Transition]:
+        """End every shower whose room the person is no longer in (an exit, the phone), as of
+        when they left; the caller puts these before the person's own transitions."""
+        out: list[Transition] = []
+        person = self.person
+        for slug, shower in self.showers.items():
+            if shower.showering and not (
+                person.presence is Presence.IN_ROOM and person.room == slug
+            ):
+                left = person.since or at
+                if shower.since is not None and left < shower.since:
+                    left = shower.since
+                out += shower.end(left, "exit")
+                person.unpin(at)
         return out
 
     def _on_person(self, at: datetime, state: str) -> None:

@@ -305,10 +305,24 @@ class PersonTracker:
                 return self._set(at, Presence.IN_ROOM, room_slug, sensors.spot_now(), "entry")
             return []
         if self._pinned is not None and room_slug != self._pinned:
-            return []
+            return self._pinned_other_room(room_slug, ch, at)
         if room_slug == self._room:
             return self._in_own_room(room_slug, ch, at)
         return self._other_room(room_slug, ch, at)
+
+    def _pinned_other_room(
+        self, room_slug: str, ch: SensorChange, at: datetime
+    ) -> list[Transition]:
+        """While pinned other rooms are ignored, except that one emptying after an edge of its
+        exit sensors is the person leaving the home: it becomes a pending exit, decided when
+        the move window ends if the pinned room still sees nobody."""
+        sensors = self.rooms[room_slug]
+        if not ch.was_occupied or sensors.occupied or sensors.degraded:
+            return []
+        edge = self._exit_edge(room_slug, at)
+        if edge is not None:
+            self._pending_exit = (edge, at + self.timings.move_window)
+        return []
 
     def _other_room(self, room_slug: str, ch: SensorChange, at: datetime) -> list[Transition]:
         """Another room sees someone while the person is in a room (spec §5.2)."""
@@ -397,6 +411,8 @@ class PersonTracker:
     def _occupied_own_room(self, room_slug: str, at: datetime) -> list[Transition]:
         sensors = self.rooms[room_slug]
         if sensors.occupied:
+            if self._pending_exit is not None and self._pinned is not None:
+                self._pending_exit = None  # the pinned room sees someone: nobody left
             if self._pending_exit is not None:
                 # Back before the exit was decided: the exit happened, then a short trip ended.
                 edge, self._pending_exit = self._pending_exit[0], None

@@ -401,3 +401,68 @@ def test_not_connected_ssid_is_no_information():
     feed(m, 0, PERSON, "unavailable")
     feed(m, 0, SSID, "Not Connected")
     assert m.snapshot().key == "unknown"
+
+
+def showering_with_bedroom_on() -> HomeMachine:
+    """The person showering in the exclusive bathroom since 660 s, the bedroom sensor seeing
+    them through the wall."""
+    m = machine(LIVE, ())
+    for e in (THP.format(1), THP.format(3), THP.format(4), BATH, DOOR, BED, FP2.format("desk")):
+        feed(m, 0, e, "off")
+    feed(m, 0, ROOM, "on")
+    feed(m, 0, HUM, "37")
+    feed(m, 360, BATH, "on")
+    feed(m, 380, BATH, "off")
+    feed(m, 400, ROOM, "off")
+    feed(m, 405, ROOM, "on")
+    feed(m, 540, HUM, "39")
+    feed(m, 660, HUM, "45")
+    assert m.snapshot().key == "bathroom:showering"
+    return m
+
+
+def test_exit_during_shower_ends_it_and_leaves():
+    m = showering_with_bedroom_on()
+    feed(m, 700, HUM, "50")  # still rising: the shower would run until 700 + 180
+    feed(m, 720, DOOR, "on")  # out of the bathroom, through the bedroom and out of the door
+    feed(m, 725, DOOR, "off")
+    feed(m, 730, ROOM, "off")  # the bedroom empties after an exit edge, the bathroom sees nobody
+    m.tick(t(761))  # the move window passed with nobody seen anywhere
+    snap = m.snapshot()
+    assert (snap.key, snap.showering) == ("just_left", False)
+    assert snap.since == t(720)
+    feed(m, 780, HUM, "56")  # the humidity still rising does not bring the person back
+    assert m.snapshot().key == "just_left"
+    m.tick(t(720 + 301))
+    assert m.snapshot().key == "away"
+
+
+def test_exit_during_shower_cancelled_by_bathroom_presence():
+    m = showering_with_bedroom_on()
+    feed(m, 720, DOOR, "on")
+    feed(m, 725, DOOR, "off")
+    feed(m, 730, ROOM, "off")
+    feed(m, 740, BATH, "on")  # still in the bathroom: the door edge was not them leaving
+    m.tick(t(761))
+    assert m.snapshot().key == "bathroom:showering"
+
+
+def test_shower_while_away_is_someone_else():
+    m = machine(LIVE, ())
+    for e in (THP.format(1), THP.format(3), THP.format(4), BATH, DOOR, BED, FP2.format("desk")):
+        feed(m, 0, e, "off")
+    feed(m, 0, HUM, "37")
+    feed(m, 0, ROOM, "on")
+    feed(m, 10, DOOR, "on")
+    feed(m, 12, DOOR, "off")
+    feed(m, 20, ROOM, "off")
+    m.tick(t(400))
+    assert m.snapshot().key == "away"
+    feed(m, 900, HUM, "37")
+    feed(m, 1000, BATH, "on")  # someone else uses the bathroom and showers
+    feed(m, 1100, HUM, "45")
+    snap = m.snapshot()
+    assert (snap.key, snap.showering, snap.home) == ("away", False, False)
+    feed(m, 1200, HUM, "52")
+    m.tick(t(5000))
+    assert m.snapshot().key == "away"
