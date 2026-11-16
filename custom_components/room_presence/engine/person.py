@@ -50,6 +50,14 @@ class PersonTracker:
         #: The last (entity, time, state) the fallback rules saw, so a sensor shared by two rooms
         #: is counted once.
         self._fallback_seen: tuple[str, datetime, str] | None = None
+        #: When the person entered the current room.
+        self._room_since: datetime | None = None
+        #: The room the person was in before the current one.
+        self._came_from: str | None = None
+        #: Room the person is pinned to while showering.
+        self._pinned: str | None = None
+        #: Start of the current quiet spell in an exclusive room whose neighbour stays occupied.
+        self._quiet_start: datetime | None = None
 
     # -- read-only view -------------------------------------------------------------------------
 
@@ -99,6 +107,16 @@ class PersonTracker:
         return self._exit_at
 
     @property
+    def came_from(self) -> str | None:
+        """The room the person was in before the current one, if any."""
+        return self._came_from
+
+    @property
+    def pinned(self) -> str | None:
+        """Room the person is pinned to (showering), else ``None``."""
+        return self._pinned
+
+    @property
     def detected(self) -> bool:
         """True while in a room whose sensors see someone now."""
         return self._room is not None and self.rooms[self._room].occupied
@@ -119,7 +137,25 @@ class PersonTracker:
         out += self._fallbacks(ch, at)
         if self._room == room_slug and (ch.was_occupied or ch.occupied):
             self._last_detection = at
+        self._update_quiet(at)
         return out
+
+    def pin(self, at: datetime, room_slug: str) -> list[Transition]:
+        """Put the person in ``room_slug`` (showering); other rooms are ignored until unpinned."""
+        at = self._advance(at)
+        out: list[Transition] = []
+        if self._presence is not Presence.IN_ROOM or self._room != room_slug:
+            out = self._move(at, room_slug, "shower")
+        self._pinned = room_slug
+        self._update_quiet(at)
+        return out
+
+    def unpin(self, at: datetime | None = None) -> None:
+        """End a :meth:`pin` at ``at`` (default: the latest time seen)."""
+        self._pinned = None
+        now = self._advance(at) if at is not None else self._now
+        if now is not None:
+            self._update_quiet(now)
 
     def fallback_sets(self, room_slug: str) -> tuple[set[str], set[str]]:
         """Return the fallback ``(motion, others)`` sensors of a room.
@@ -162,10 +198,12 @@ class PersonTracker:
         while True:
             due = sorted((d, k) for k, d in self._deadlines() if d <= now)
             if not due:
+                self._advance(now)
                 return out
             d, kind = due[0]
             self._advance(d)
             out += self._run_deadline(kind, d)
+            self._update_quiet(d)
 
     # -- internals ------------------------------------------------------------------------------
 
@@ -192,6 +230,8 @@ class PersonTracker:
             room = spot = None
         if (room, spot) != (self._room, self._spot):
             self._spot_since = at
+        if room != self._room:
+            self._room_since = at
         if presence is Presence.JUST_LEFT and self._presence is not Presence.JUST_LEFT:
             self._exit_at = at
         self._presence, self._room, self._spot, self._reason = presence, room, spot, reason
@@ -211,6 +251,8 @@ class PersonTracker:
             out.append(("expire", self._since + self.timings.recently_left_duration))
         if self._fallback_exit is not None:
             out.append(("fallback_exit", self._fallback_exit[2] + self.timings.exit_quiet))
+        if self._quiet_start is not None:
+            out.append(("quiet", self._quiet_start + self.timings.exclusive_quiet))
         return out
 
     def _run_deadline(self, kind: str, d: datetime) -> list[Transition]:
@@ -225,6 +267,12 @@ class PersonTracker:
             assert pending is not None
             if self._presence is Presence.IN_ROOM and self.held:
                 return self._set(pending[0], Presence.JUST_LEFT, None, None, "crossing")
+            return []
+        if kind == "quiet":
+            self._quiet_start = None
+            back = self._came_from
+            if self._quiet_holds() and back is not None:
+                return self._move(d, back, "exclusive_quiet")
             return []
         if kind == "fallback_exit":
             candidate, self._fallback_exit = self._fallback_exit, None
@@ -256,9 +304,55 @@ class PersonTracker:
                 self._pending_drop = None
                 return self._set(at, Presence.IN_ROOM, room_slug, sensors.spot_now(), "entry")
             return []
+        if self._pinned is not None and room_slug != self._pinned:
+            return []
         if room_slug == self._room:
             return self._in_own_room(room_slug, ch, at)
-        return []
+        return self._other_room(room_slug, ch, at)
+
+    def _other_room(self, room_slug: str, ch: SensorChange, at: datetime) -> list[Transition]:
+        """Another room sees someone while the person is in a room (spec §5.2)."""
+        if not (ch.occupied and (ch.edge or not ch.was_occupied)) or ch.degraded:
+            return []
+        current = self._room
+        if current is None or self.held:
+            return self._move(at, room_slug, "moved")
+        if self.home.room(room_slug).exclusive:
+            return self._move(at, room_slug, "exclusive")
+        if self.home.room(current).exclusive and ch.edge:
+            return self._move(at, room_slug, "moved")
+        return []  # bleed: the current room still sees someone
+
+    def _move(self, at: datetime, room_slug: str, reason: str) -> list[Transition]:
+        previous = self._room if self._presence is Presence.IN_ROOM else None
+        self._pending_drop = self._pending_exit = self._fallback_exit = None
+        self._quiet_start = None
+        spot = self.rooms[room_slug].spot_now()
+        out = self._set(at, Presence.IN_ROOM, room_slug, spot, reason)
+        if previous != room_slug:
+            self._came_from = previous
+        self._last_detection = at
+        return out
+
+    def _quiet_holds(self) -> bool:
+        """In an exclusive room that sees nobody while the room the person came from does."""
+        room, back = self._room, self._came_from
+        return (
+            self._presence is Presence.IN_ROOM
+            and room is not None
+            and back is not None
+            and self._pinned is None
+            and self.home.room(room).exclusive
+            and not self.rooms[room].occupied
+            and self.rooms[back].occupied
+            and not self.rooms[back].degraded
+        )
+
+    def _update_quiet(self, at: datetime) -> None:
+        if not self._quiet_holds():
+            self._quiet_start = None
+        elif self._quiet_start is None:
+            self._quiet_start = at
 
     def _from_unknown(self, room_slug: str, at: datetime) -> list[Transition]:
         live = {s: r for s, r in self.rooms.items() if r.occupied and not r.degraded}
@@ -312,8 +406,22 @@ class PersonTracker:
         return []
 
     def _emptied(self, room_slug: str, at: datetime, held_reason: str) -> list[Transition]:
-        """The person's room went empty: an exit crossing waits for the move window, else held."""
+        """The person's room went empty: another room seen since the person came in wins, then an
+        exit crossing (which waits for the move window), else held."""
         self._pending_drop = None
+        if self._pinned is None:
+            lo = at - self.timings.crossing_window
+            if self._room_since is not None and self._room_since > lo:
+                lo = self._room_since
+            claims = [
+                (edge, slug)
+                for slug, sensors in self.rooms.items()
+                if slug != room_slug and sensors.occupied and not sensors.degraded
+                for edge in [sensors.latest_edge(("presence", "spot"), lo, at)]
+                if edge is not None
+            ]
+            if claims:
+                return self._move(at, max(claims)[1], "moved")
         edge = self._exit_edge(room_slug, at)
         if edge is None:
             self._reason = held_reason
