@@ -2,7 +2,9 @@
   "domain": "room_presence",
   "name": "Room Presence",
   "after_dependencies": [
-    "recorder"
+    "person",
+    "recorder",
+    "zone"
   ],
   "codeowners": [
     "@will-roscoe"

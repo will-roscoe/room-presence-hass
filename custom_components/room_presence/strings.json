@@ -357,6 +357,33 @@
       }
     }
   },
+  "issues": {
+    "person_missing": {
+      "title": "Pick the person room presence tracks",
+      "fix_flow": {
+        "step": {
+          "person": {
+            "title": "Person",
+            "description": "Room presence could not tell whose presence it tracks. Pick the person; their phone's Wi-Fi sensors are found automatically and can be changed from the integration page.",
+            "data": {
+              "person": "Person"
+            }
+          }
+        },
+        "abort": {
+          "entry_removed": "Room presence is no longer set up."
+        }
+      }
+    },
+    "missing_entity": {
+      "title": "A sensor used by room presence is missing",
+      "description": "{entity}, used by {room}, is not in Home Assistant. Restore it, or edit {room} to remove or replace it. This clears at the next reload."
+    },
+    "multiple_entries": {
+      "title": "Only one room presence home is supported",
+      "description": "Room presence now covers the whole home in one entry, so the older entry {title} was not upgraded and does not load. Delete it, then add its rooms to the home as rooms."
+    }
+  },
   "exceptions": {
     "not_loaded": {
       "message": "Room presence is not set up or not loaded."

@@ -10,6 +10,8 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 from .coordinator import PresenceCoordinator
+from .migration import async_migrate
+from .repairs import async_update_issues
 from .services import async_register_services
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
@@ -26,13 +28,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: PresenceConfigEntry) -> bool:
-    """Set up the home: rebuild its state from history, then follow its inputs live."""
+    """Set up the home: raise or clear its repair issues, rebuild its state from history, then
+    follow its inputs live."""
+    async_update_issues(hass, entry)
     coord = PresenceCoordinator(hass, entry)
     entry.runtime_data = coord
     await coord.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: PresenceConfigEntry) -> bool:
+    """Upgrade a v0.1 entry to the home model (see :func:`.migration.async_migrate`)."""
+    return await async_migrate(hass, entry)
 
 
 async def _async_reload(hass: HomeAssistant, entry: PresenceConfigEntry) -> None:
