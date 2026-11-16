@@ -45,6 +45,11 @@ class PersonTracker:
         self._pending_drop: datetime | None = None
         #: (exit edge, decision time) of an exit waiting for another room to claim the person.
         self._pending_exit: tuple[datetime, datetime] | None = None
+        #: Fallback exit candidate: (room, exit edge, exit off), waiting for the quiet period.
+        self._fallback_exit: tuple[str, datetime, datetime] | None = None
+        #: The last (entity, time, state) the fallback rules saw, so a sensor shared by two rooms
+        #: is counted once.
+        self._fallback_seen: tuple[str, datetime, str] | None = None
 
     # -- read-only view -------------------------------------------------------------------------
 
@@ -111,9 +116,22 @@ class PersonTracker:
         at = self._advance(ch.at)
         if ch.kinds & _SEEN:
             out += self._on_seen(room_slug, ch, at)
+        out += self._fallbacks(ch, at)
         if self._room == room_slug and (ch.was_occupied or ch.occupied):
             self._last_detection = at
         return out
+
+    def fallback_sets(self, room_slug: str) -> tuple[set[str], set[str]]:
+        """Return the fallback ``(motion, others)`` sensors of a room.
+
+        ``motion`` is the room's motion sensors plus every other room's presence sensors;
+        ``others`` is ``motion`` without the room's exits.
+        """
+        room = self.home.room(room_slug)
+        motion = set(room.motion) | {
+            e for r in self.home.rooms if r.slug != room_slug for e in r.presence
+        }
+        return motion, motion - set(room.exits)
 
     def force(
         self,
@@ -128,7 +146,7 @@ class PersonTracker:
         A forced room counts as a detection at ``at``. Pending decisions are dropped.
         """
         at = self._advance(at)
-        self._pending_drop = self._pending_exit = None
+        self._pending_drop = self._pending_exit = self._fallback_exit = None
         if presence is Presence.IN_ROOM:
             self._last_detection = at
         return self._set(at, presence, room, spot, reason)
@@ -191,6 +209,8 @@ class PersonTracker:
             out.append(("exit", self._pending_exit[1]))
         if self._presence is Presence.JUST_LEFT and self._since is not None:
             out.append(("expire", self._since + self.timings.recently_left_duration))
+        if self._fallback_exit is not None:
+            out.append(("fallback_exit", self._fallback_exit[2] + self.timings.exit_quiet))
         return out
 
     def _run_deadline(self, kind: str, d: datetime) -> list[Transition]:
@@ -205,6 +225,12 @@ class PersonTracker:
             assert pending is not None
             if self._presence is Presence.IN_ROOM and self.held:
                 return self._set(pending[0], Presence.JUST_LEFT, None, None, "crossing")
+            return []
+        if kind == "fallback_exit":
+            candidate, self._fallback_exit = self._fallback_exit, None
+            assert candidate is not None
+            if self._presence is Presence.IN_ROOM and self._room == candidate[0]:
+                return self._set(candidate[1], Presence.JUST_LEFT, None, None, "fallback_exit")
             return []
         return self._set(d, Presence.OUT, None, None, "just_left_expired")
 
@@ -226,7 +252,7 @@ class PersonTracker:
         if self._presence is Presence.UNKNOWN:
             return self._from_unknown(room_slug, at)
         if self._presence is not Presence.IN_ROOM:
-            if sensors.occupied and self._entry_allowed(room_slug, at):
+            if sensors.occupied and not sensors.degraded and self._entry_allowed(room_slug, at):
                 self._pending_drop = None
                 return self._set(at, Presence.IN_ROOM, room_slug, sensors.spot_now(), "entry")
             return []
@@ -235,10 +261,8 @@ class PersonTracker:
         return []
 
     def _from_unknown(self, room_slug: str, at: datetime) -> list[Transition]:
-        if self.rooms[room_slug].occupied:
-            target = room_slug
-        else:
-            target = next((s for s, r in self.rooms.items() if r.occupied), None)
+        live = {s: r for s, r in self.rooms.items() if r.occupied and not r.degraded}
+        target = room_slug if room_slug in live else next(iter(live), None)
         if target is not None:
             spot = self.rooms[target].spot_now()
             return self._set(at, Presence.IN_ROOM, target, spot, "detected")
@@ -247,6 +271,34 @@ class PersonTracker:
         return []
 
     def _in_own_room(self, room_slug: str, ch: SensorChange, at: datetime) -> list[Transition]:
+        sensors = self.rooms[room_slug]
+        if ch.degraded:
+            # The presence sensors went away: hold everything, and let the fallback watch the exits.
+            self._pending_drop = None
+            if not ch.was_degraded:
+                self._reason = "unavailable"
+            return []
+        back = ch.was_degraded
+        if back and sensors.occupied:
+            self._fallback_exit = None  # the sensors see someone: no exit happened
+        if sensors.occupied:
+            if back:
+                self._reason = "back"
+            out = self._occupied_own_room(room_slug, at)
+            if back and not out:
+                self._reason = "back"
+            return out
+        if back:
+            # Back and empty: an exit during the outage is either the fallback candidate still
+            # waiting for its quiet period, or an exit edge in the usual look-back.
+            self._reason = "back"
+            if self._fallback_exit is not None:
+                return []
+        elif not ch.was_occupied:
+            return []
+        return self._emptied(room_slug, at, "back" if back else "held")
+
+    def _occupied_own_room(self, room_slug: str, at: datetime) -> list[Transition]:
         sensors = self.rooms[room_slug]
         if sensors.occupied:
             self._pending_exit = None
@@ -257,13 +309,79 @@ class PersonTracker:
                 return []
             self._pending_drop = None
             return self._set(at, Presence.IN_ROOM, room_slug, spot, "spot")
-        if not ch.was_occupied:
-            return []
-        # The room went empty: an exit crossing waits for the move window, otherwise held.
+        return []
+
+    def _emptied(self, room_slug: str, at: datetime, held_reason: str) -> list[Transition]:
+        """The person's room went empty: an exit crossing waits for the move window, else held."""
         self._pending_drop = None
         edge = self._exit_edge(room_slug, at)
         if edge is None:
-            self._reason = "held"
+            self._reason = held_reason
             return []
         self._pending_exit = (edge, at + self.timings.move_window)
         return []
+
+    # -- fallback (presence sensors unavailable) -------------------------------------------------
+
+    def _fallbacks(self, ch: SensorChange, at: datetime) -> list[Transition]:
+        key = (ch.entity_id, ch.at, ch.state)
+        if self._fallback_seen == key:
+            return []
+        if self._presence is Presence.IN_ROOM:
+            rooms = [self._room] if self._room and self.rooms[self._room].degraded else []
+        elif self._presence in (Presence.OUT, Presence.JUST_LEFT):
+            rooms = [r.slug for r in self.home.rooms if r.exits and self.rooms[r.slug].degraded]
+        else:
+            rooms = []
+        out: list[Transition] = []
+        for slug in rooms:
+            motion, _ = self.fallback_sets(slug)
+            if ch.entity_id in motion or ch.entity_id in self.home.room(slug).exits:
+                self._fallback_seen = key
+                out += self._fallback(slug, ch, at)
+        return out
+
+    def _fallback(self, room_slug: str, ch: SensorChange, at: datetime) -> list[Transition]:
+        """Exit and entry rules on the exit and motion sensors (spec §5.1, v0.1 §5.3)."""
+        timings = self.timings
+        room = self.home.room(room_slug)
+        motion, others = self.fallback_sets(room_slug)
+        if ch.entity_id in room.exits:
+            if (
+                ch.prev == "on"
+                and ch.on_at is not None
+                and self._presence is Presence.IN_ROOM
+                and self._room == room_slug
+                and at - ch.on_at >= timings.exit_door_on_time
+                and self._latest(motion, ch.on_at - timings.exit_pre_window, ch.on_at) is not None
+            ):
+                self._fallback_exit = (room_slug, ch.on_at, at)
+            return []
+        if not ch.edge or ch.entity_id not in others:
+            return []
+        if self._fallback_exit is not None and at > self._fallback_exit[2]:
+            self._fallback_exit = None
+        if self._presence is Presence.IN_ROOM:
+            return []
+        available = [e for e in others if self._state(e) in ("on", "off")]
+        need = min(2, len(available))
+        door = self._latest(room.exits, at - timings.entry_window, at)
+        if need == 0 or door is None:
+            return []
+        end = door + timings.entry_window
+        seen = {e for e in others if any(door <= x <= end for x in self._edges(e))}
+        if len(seen) < need:
+            return []
+        return self._set(at, Presence.IN_ROOM, room_slug, None, "fallback_entry")
+
+    def _edges(self, entity_id: str) -> list[datetime]:
+        owners = self.home.owners(entity_id)
+        return self.rooms[owners[0][0]].edges_of(entity_id) if owners else []
+
+    def _state(self, entity_id: str) -> str | None:
+        owners = self.home.owners(entity_id)
+        return self.rooms[owners[0][0]].state_of(entity_id) if owners else None
+
+    def _latest(self, entities, lo: datetime, hi: datetime) -> datetime | None:
+        hits = [x for e in entities for x in self._edges(e) if lo <= x <= hi]
+        return max(hits) if hits else None
