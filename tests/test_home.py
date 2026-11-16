@@ -394,3 +394,10 @@ def test_short_trip_emits_just_left_then_return():
         (t(50), "bedroom", "just_left", "crossing"),
         (t(80), "just_left", "bedroom", "entry"),
     ]
+
+
+def test_not_connected_ssid_is_no_information():
+    m = machine()
+    feed(m, 0, PERSON, "unavailable")
+    feed(m, 0, SSID, "Not Connected")
+    assert m.snapshot().key == "unknown"

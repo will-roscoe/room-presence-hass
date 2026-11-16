@@ -326,7 +326,11 @@ class HomeMachine:
             return self._match.slug
         if self._zone is not None and self._zone != self.home.home_zone:
             return self._zone.split(".", 1)[1]
-        has_info = self._zone is not None or self._person_seen or bool(self._ssids)
+        has_info = (
+            self._zone is not None
+            or self._person_seen
+            or any(_clean_ssid(s) for s in self._ssids.values())
+        )
         if person.presence is Presence.UNKNOWN and not has_info:
             return "unknown"
         return "away"

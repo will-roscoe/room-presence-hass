@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import PresenceConfigEntry
-from .engine.v01.machine import LOCATIONS_FIXED
+from .engine.types import FIXED_LOCATIONS as LOCATIONS_FIXED
 from .entity import PresenceEntity
 
 

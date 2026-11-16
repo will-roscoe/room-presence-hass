@@ -1,4 +1,4 @@
-"""The room_presence integration: where one person is, from an FP2, THP sensors and a phone."""
+"""The room_presence integration: where one person is in the home, and what they are doing."""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the actions shared by all entries."""
+    """Register the integration's actions."""
     async_register_services(hass)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: PresenceConfigEntry) -> bool:
-    """Set up one tracked room: rebuild its state, then follow its inputs live."""
+    """Set up the home: rebuild its state from history, then follow its inputs live."""
     coord = PresenceCoordinator(hass, entry)
     entry.runtime_data = coord
     await coord.async_start()
@@ -36,7 +36,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PresenceConfigEntry) -> 
 
 
 async def _async_reload(hass: HomeAssistant, entry: PresenceConfigEntry) -> None:
-    """Reload after the options or the places change."""
+    """Reload after the options or any subentry change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 

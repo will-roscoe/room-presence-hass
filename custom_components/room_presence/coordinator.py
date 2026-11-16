@@ -20,114 +20,163 @@ from homeassistant.util import dt as dt_util, slugify
 
 from .const import (
     CONF_BATHROOM,
-    CONF_DOOR_WITNESSES,
     CONF_ENTRY_NEEDS_CROSSING,
-    CONF_FALLBACK_MOTION,
-    CONF_FP2_BED,
-    CONF_FP2_DESK,
-    CONF_FP2_ROOM,
-    CONF_MOVEMENT,
-    CONF_PHONE_SSID,
-    CONF_PHONE_TRACKER,
+    CONF_EXCLUSIVE,
+    CONF_EXITS,
+    CONF_HOME_SSIDS,
+    CONF_HOME_ZONE,
+    CONF_HUMIDITY,
+    CONF_MODE,
+    CONF_MOTION,
+    CONF_NAME,
+    CONF_PERSON,
+    CONF_PRESENCE,
+    CONF_PRIORITY,
     CONF_REBUILD_LOOKBACK,
+    CONF_ROLE,
+    CONF_SENSOR,
+    CONF_SHOWER_RISE,
     CONF_SLEEP_ENTITIES,
+    CONF_SPOTS,
+    CONF_SSID_SENSORS,
+    CONF_SSIDS,
+    CONF_STILLNESS,
+    CONF_ZONES,
     DEFAULTS,
     DOMAIN,
     EVENT_TRANSITION,
+    SUBENTRY_PERSON,
+    SUBENTRY_PLACE,
+    SUBENTRY_ROOM,
+    TIMING_KEYS,
 )
-from .engine.v01 import EngineConfig, ManualEvent, Snapshot, StateEvent, Transition
-from .engine.v01.machine import PresenceMachine
-from .engine.v01.places import Place
-from .engine.v01.replay import history_events, replay
+from .engine import (
+    HomeConfig,
+    HomeMachine,
+    ManualEvent,
+    Place,
+    RoomConfig,
+    Snapshot,
+    SpotConfig,
+    StateEvent,
+    Timings,
+    Transition,
+    history_events,
+    replay,
+)
 
-#: Option keys holding a duration in seconds, by EngineConfig field (the same names).
-TIMING_KEYS = (
-    "crossing_window",
-    "bathroom_window",
-    "recently_left_duration",
-    "sleep_quiet",
-    "wake_on_time",
-    "bed_leave_grace",
-    "exit_pre_window",
-    "exit_quiet",
-    "exit_door_on_time",
-    "entry_window",
-)
-SUBENTRY_PLACE = "place"
 _LOGGER = logging.getLogger(__name__)
 STORE_VERSION = 1
+#: Person states that are not zone names.
+_NOT_ZONES = frozenset({"home", "not_home", "unavailable", "unknown"})
 
 
-def engine_config(conf: Mapping[str, Any]) -> EngineConfig:
-    """Build an :class:`EngineConfig` from merged entry data and options (seconds → timedelta)."""
-
-    def opt(key: str) -> str | None:
-        return conf.get(key) or None
-
-    def many(key: str) -> tuple[str, ...]:
-        return tuple(conf.get(key) or ())
-
-    timings = {k: timedelta(seconds=float(conf.get(k, DEFAULTS[k]))) for k in TIMING_KEYS}
-    return EngineConfig(
-        fp2_room=conf[CONF_FP2_ROOM],
-        fp2_bed=opt(CONF_FP2_BED),
-        fp2_desk=opt(CONF_FP2_DESK),
-        door_witnesses=many(CONF_DOOR_WITNESSES),
-        bathroom=opt(CONF_BATHROOM),
-        movement=opt(CONF_MOVEMENT),
-        fallback_motion=many(CONF_FALLBACK_MOTION),
-        sleep_entities=many(CONF_SLEEP_ENTITIES),
-        phone_tracker=opt(CONF_PHONE_TRACKER),
-        phone_ssid=opt(CONF_PHONE_SSID),
+def timings(conf: Mapping[str, Any]) -> Timings:
+    """Build :class:`~.engine.types.Timings` from entry options (seconds, points, a flag)."""
+    durations = {k: timedelta(seconds=float(conf.get(k, DEFAULTS[k]))) for k in TIMING_KEYS}
+    return Timings(
+        **durations,
+        shower_rise=float(conf.get(CONF_SHOWER_RISE, DEFAULTS[CONF_SHOWER_RISE])),
         entry_needs_crossing=bool(
             conf.get(CONF_ENTRY_NEEDS_CROSSING, DEFAULTS[CONF_ENTRY_NEEDS_CROSSING])
         ),
-        **timings,
+    )
+
+
+def room_config(data: Mapping[str, Any]) -> RoomConfig:
+    """Build a :class:`~.engine.types.RoomConfig` from a room subentry's data (slug = slugified
+    name; spot slugs likewise)."""
+    spots = tuple(
+        SpotConfig(
+            slug=slugify(s[CONF_NAME]),
+            name=s[CONF_NAME],
+            sensor=s[CONF_SENSOR],
+            role=s.get(CONF_ROLE) or None,
+            stillness=s.get(CONF_STILLNESS) or None,
+            sleep_entities=tuple(s.get(CONF_SLEEP_ENTITIES) or ()),
+        )
+        for s in data.get(CONF_SPOTS) or ()
+    )
+    bathroom = bool(data.get(CONF_BATHROOM, False))
+    return RoomConfig(
+        slug=slugify(data[CONF_NAME]),
+        name=data[CONF_NAME],
+        presence=tuple(data.get(CONF_PRESENCE) or ()),
+        motion=tuple(data.get(CONF_MOTION) or ()),
+        exits=tuple(data.get(CONF_EXITS) or ()),
+        spots=spots,
+        bathroom=bathroom,
+        exclusive=bool(data.get(CONF_EXCLUSIVE, False)),
+        humidity=(data.get(CONF_HUMIDITY) or None) if bathroom else None,
+    )
+
+
+def person_subentry(entry: ConfigEntry) -> Any | None:
+    """Return the entry's person subentry, or ``None`` if it has none."""
+    return next((s for s in entry.subentries.values() if s.subentry_type == SUBENTRY_PERSON), None)
+
+
+def home_config(hass: HomeAssistant, entry: ConfigEntry) -> HomeConfig:
+    """Build the engine's :class:`~.engine.types.HomeConfig` from the entry and its subentries.
+
+    Rooms come in subentry creation order; zone names are read from the current ``zone`` states.
+
+    :raises ValueError: the rooms do not form a valid home (see :class:`HomeConfig`).
+    """
+    conf = {**entry.data, **entry.options}
+    rooms = tuple(
+        room_config(s.data) for s in entry.subentries.values() if s.subentry_type == SUBENTRY_ROOM
+    )
+    person = person_subentry(entry)
+    return HomeConfig(
+        rooms=rooms,
+        person=person.data.get(CONF_PERSON) if person else None,
+        home_zone=conf.get(CONF_HOME_ZONE) or "zone.home",
+        home_ssids=frozenset(conf.get(CONF_HOME_SSIDS) or ()),
+        ssid_sensors=tuple(person.data.get(CONF_SSID_SENSORS) or ()) if person else (),
+        zone_names={z.entity_id: z.name for z in hass.states.async_all("zone")},
+        timings=timings(conf),
     )
 
 
 def entry_places(entry: ConfigEntry) -> list[Place]:
-    """Return the entry's place subentries as :class:`Place` objects (slug = slugified name)."""
-    out = []
-    for sub in entry.subentries.values():
-        if sub.subentry_type != SUBENTRY_PLACE:
-            continue
-        d = sub.data
-        out.append(
-            Place(
-                slug=slugify(d["name"]),
-                name=d["name"],
-                ssids=tuple(d.get("ssids") or ()),
-                zones=tuple(d.get("zones") or ()),
-                mode=d.get("mode", "any"),
-                priority=int(d.get("priority", 0)),
-                on_site=bool(d.get("on_site", False)),
-            )
+    """Return the entry's place subentries as :class:`~.engine.places.Place` objects."""
+    return [
+        Place(
+            slug=slugify(s.data[CONF_NAME]),
+            name=s.data[CONF_NAME],
+            ssids=tuple(s.data.get(CONF_SSIDS) or ()),
+            zones=tuple(s.data.get(CONF_ZONES) or ()),
+            mode=s.data.get(CONF_MODE, "any"),
+            priority=int(s.data.get(CONF_PRIORITY, 0)),
         )
-    return out
+        for s in entry.subentries.values()
+        if s.subentry_type == SUBENTRY_PLACE
+    ]
 
 
 class PresenceCoordinator:
-    """Runs one entry's :class:`PresenceMachine` against live Home Assistant state.
+    """Runs the home's :class:`~.engine.home.HomeMachine` against live Home Assistant state.
 
     Read :attr:`snapshot` for the answer, :attr:`transitions` and :attr:`edges` for the recent
-    log; :meth:`add_listener` to be told after every change. Every location transition is also
-    fired on the bus as :data:`~.const.EVENT_TRANSITION`.
+    log; :meth:`add_listener` to be told after every change. Every status change is also fired
+    on the bus as :data:`~.const.EVENT_TRANSITION`.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """:param hass: Home Assistant.
-        :param entry: the room_presence config entry (data, options and place subentries).
+        :param entry: the room_presence entry (data, options, person, room and place subentries).
+        :raises ValueError: the rooms do not form a valid home.
         """
         self.hass = hass
         self.entry = entry
         conf = {**entry.data, **entry.options}
-        self.cfg = engine_config(conf)
+        self.home = home_config(hass, entry)
         self.places = entry_places(entry)
         self.lookback = timedelta(
             hours=float(conf.get(CONF_REBUILD_LOOKBACK, DEFAULTS[CONF_REBUILD_LOOKBACK]))
         )
-        self.machine = PresenceMachine(self.cfg, self.places)
+        self.machine = HomeMachine(self.home, self.places)
         self.transitions: deque[Transition] = deque(maxlen=200)
         self.edges: deque[StateEvent] = deque(maxlen=500)
         self._listeners: list[Callable[[], None]] = []
@@ -135,9 +184,9 @@ class PresenceCoordinator:
         self._timer: CALLBACK_TYPE | None = None
         self._delayed: CALLBACK_TYPE | None = None
         self._store: Store[dict[str, Any]] = Store(
-            hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}.manual"
+            hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}.manual_v2"
         )
-        self._manual: list[dict[str, str]] = []
+        self._manual: list[dict[str, str | None]] = []
 
     @property
     def snapshot(self) -> Snapshot:
@@ -146,12 +195,8 @@ class PresenceCoordinator:
 
     @property
     def inputs(self) -> list[str]:
-        """Every configured input entity id."""
-        c = self.cfg
-        ids = [c.fp2_room, c.fp2_bed, c.fp2_desk, c.bathroom, c.movement]
-        ids += [*c.door_witnesses, *c.fallback_motion, *c.sleep_entities]
-        ids += [c.phone_tracker, c.phone_ssid]
-        return list(dict.fromkeys(i for i in ids if i))
+        """Every input entity id."""
+        return list(self.home.inputs())
 
     def add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         """Call ``cb`` after every input or deadline; returns the function that removes it."""
@@ -163,16 +208,17 @@ class PresenceCoordinator:
     async def async_start(self) -> None:
         """Rebuild the state from recorder history and stored corrections, then follow live.
 
-        History of every input over the lookback (24 h by default) and the stored ``set_state``
+        History of every input over the look-back (24 h by default) and the stored ``set_state``
         calls in that window are replayed into the fresh engine; their transitions are logged but
-        not fired on the bus. Stored calls older than the window are dropped. Without the
-        recorder, only the current states are used.
+        not fired on the bus. Stored calls older than the window are dropped, and calls the
+        current configuration rejects (a deleted room, say) are skipped. Without the recorder,
+        or if reading it fails, only the current states are used.
         """
         now = dt_util.utcnow()
         start = now - self.lookback
         stored = await self._store.async_load() or {}
         calls = list(stored.get("calls", []))
-        self._manual = [m for m in calls if datetime.fromisoformat(m["at"]) >= start]
+        self._manual = [m for m in calls if datetime.fromisoformat(str(m["at"])) >= start]
         if len(self._manual) != len(calls):
             await self._store.async_save({"calls": self._manual})
         events: list[StateEvent | ManualEvent] = []
@@ -185,7 +231,10 @@ class PresenceCoordinator:
                     exc_info=True,
                 )
         self.edges.extend(e for e in events if isinstance(e, StateEvent))
-        events += [ManualEvent(datetime.fromisoformat(m["at"]), m["state"]) for m in self._manual]
+        events += [
+            ManualEvent(datetime.fromisoformat(str(m["at"])), m.get("location"), m.get("activity"))
+            for m in self._manual
+        ]
         events.sort(key=lambda e: e.at)
         self.transitions.extend(replay(self.machine, events, until=now))
         self._feed_current_states()
@@ -207,16 +256,16 @@ class PresenceCoordinator:
 
     # -- set_state ------------------------------------------------------------------------------
 
-    def validate_state(self, state: str) -> None:
-        """Raise :class:`ValueError` unless ``state`` is a valid ``set_state`` target."""
-        self.machine.check_state(state)
+    async def async_set_state(
+        self, location: str | None, activity: str | None, delay: float | None = None
+    ) -> None:
+        """Force ``location`` and/or ``activity`` now, or after ``delay`` seconds (replacing a
+        pending delayed call).
 
-    async def async_set_state(self, state: str, delay: float | None = None) -> None:
-        """Force ``state`` now, or after ``delay`` seconds (replacing a pending delayed call).
-
-        :raises ValueError: ``state`` is not a fixed location (except ``unknown``) or place slug.
+        :raises ValueError: the engine rejects the call (see
+            :meth:`~.engine.home.HomeMachine.check_manual`).
         """
-        self.validate_state(state)
+        self.machine.check_manual(location, activity)
         if self._delayed is not None:
             self._delayed()
             self._delayed = None
@@ -225,18 +274,18 @@ class PresenceCoordinator:
             @callback
             def _later(_now: datetime) -> None:
                 self._delayed = None
-                self.hass.async_create_task(self._apply_manual(state))
+                self.hass.async_create_task(self._apply_manual(location, activity))
 
             self._delayed = async_call_later(self.hass, delay, _later)
             return
-        await self._apply_manual(state)
+        await self._apply_manual(location, activity)
 
-    async def _apply_manual(self, state: str) -> None:
+    async def _apply_manual(self, location: str | None, activity: str | None) -> None:
         now = dt_util.utcnow()
-        self._publish(self.machine.feed(ManualEvent(now, state)))
-        self._manual.append({"at": now.isoformat(), "state": state})
+        self._publish(self.machine.feed(ManualEvent(now, location, activity)))
+        self._manual.append({"at": now.isoformat(), "location": location, "activity": activity})
         cutoff = now - self.lookback
-        self._manual = [m for m in self._manual if datetime.fromisoformat(m["at"]) >= cutoff]
+        self._manual = [m for m in self._manual if datetime.fromisoformat(str(m["at"])) >= cutoff]
         await self._store.async_save({"calls": self._manual})
         self._schedule()
 
@@ -262,8 +311,8 @@ class PresenceCoordinator:
         return [self._event(e.entity_id, e.state, e.at) for e in history_events(rows)]
 
     def _zone_entity(self, state: str) -> str:
-        """Map a tracker state (a zone *name*) to the zone entity id the places use."""
-        if state == "home" or state.startswith("zone."):
+        """Map a person state that is a zone *name* to the zone entity id the engine uses."""
+        if state in _NOT_ZONES or state.startswith("zone."):
             return state
         for zone in self.hass.states.async_all("zone"):
             if state in (zone.name, zone.attributes.get("friendly_name")):
@@ -271,7 +320,7 @@ class PresenceCoordinator:
         return state
 
     def _event(self, entity_id: str, state: str, at: datetime) -> StateEvent:
-        if entity_id == self.cfg.phone_tracker:
+        if entity_id == self.home.person:
             state = self._zone_entity(state)
         return StateEvent(at, entity_id, state)
 
@@ -282,7 +331,9 @@ class PresenceCoordinator:
 
     @callback
     def _on_state_change(self, event: Event[EventStateChangedData]) -> None:
-        new = event.data["new_state"]
+        old, new = event.data["old_state"], event.data["new_state"]
+        if old is not None and new is not None and old.state == new.state:
+            return  # an attribute-only update says nothing new
         state = new.state if new is not None else "unavailable"
         at = new.last_changed if new is not None else dt_util.utcnow()
         self._feed(self._event(event.data["entity_id"], state, at))
