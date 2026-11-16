@@ -392,7 +392,7 @@
       "message": "Give a location, an activity, or both."
     },
     "invalid_location": {
-      "message": "{value} is not a location of this home. Use a room, spot or place name, home or away."
+      "message": "{value} is not a location of this home. Use a room, spot or place name, just_left or away."
     },
     "invalid_activity": {
       "message": "{value} cannot be set. Use asleep or awake."
@@ -405,7 +405,7 @@
       "fields": {
         "location": {
           "name": "Location",
-          "description": "A room, spot or place name (as a slug, e.g. bed), home or away."
+          "description": "A room, spot or place name (as a slug, e.g. bed), just_left or away."
         },
         "activity": {
           "name": "Activity",

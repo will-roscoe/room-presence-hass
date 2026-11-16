@@ -4,7 +4,7 @@ The replay tests and the startup rebuild both use these two functions:
 
 .. code-block:: python
 
-    events = history_events({"binary_sensor.fp2_room": [["2000-01-03T18:40:35+00:00", "on"]]})
+    events = history_events({"binary_sensor.bedroom": [["2000-01-03T18:40:35+00:00", "on"]]})
     transitions = replay(HomeMachine(home, places), events, until=now)
 """
 

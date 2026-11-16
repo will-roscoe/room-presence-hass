@@ -1,4 +1,4 @@
-"""Upgrade a v0.1 entry (config entry version 1: one room, its FP2 zones and the phone) to the
+"""Upgrade a v0.1 entry (config entry version 1: one room, its presence zones and the phone) to the
 home model (version 2: a person, rooms and places as subentries).
 
 Call :func:`async_migrate` from ``async_migrate_entry``. It always leaves an entry that loads:
@@ -174,7 +174,7 @@ def _rooms(
     """The room subentries' data: the v0.1 room (if it had a room zone), then the bathroom."""
     out: list[dict[str, Any]] = []
     bathroom = conf.get(V1_BATHROOM)
-    if fp2 := conf.get(V1_FP2_ROOM):
+    if sensor := conf.get(V1_FP2_ROOM):
         spots = []
         if bed := conf.get(V1_FP2_BED):
             spots.append(
@@ -189,8 +189,8 @@ def _rooms(
         out.append(
             _room(
                 _unique(title, taken),
-                _area(hass, fp2),
-                [fp2],
+                _area(hass, sensor),
+                [sensor],
                 motion,
                 list(conf.get(V1_DOOR_WITNESSES) or ()),
                 spots,

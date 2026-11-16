@@ -14,7 +14,7 @@ MEANINGLESS_SSIDS = frozenset({"", "not connected", "<not connected>", "unavaila
 class Place:
     """A configured place.
 
-    ``ssids`` and ``zones`` (zone entity ids such as ``zone.uni``) are the evidence; ``mode``
+    ``ssids`` and ``zones`` (zone entity ids such as ``zone.office``) are the evidence; ``mode``
     ``any`` needs one of them, ``all`` needs an SSID and a zone at once. Lower ``priority`` wins.
     """
 
