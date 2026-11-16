@@ -383,12 +383,24 @@ class HomeMachine:
         return person.force(at, Presence.OUT, None, None, "manual")
 
     def _emit(self, layer: list[Transition], at: datetime) -> list[Transition]:
+        out: list[Transition] = []
+        if self.person.presence is not Presence.JUST_LEFT:
+            # An exit and a return inside one event (a trip shorter than the move window) still
+            # shows the exit.
+            for tr in layer:
+                if tr.new == Presence.JUST_LEFT.value:
+                    out += self._emit_key("just_left", tr.at, tr.reason)
         new = self.snapshot().key
         if layer:
             at, reason = layer[-1].at, layer[-1].reason
         else:
-            reason = "phone" if new != self._key else self._reason
+            reason = "phone"
+        return out + self._emit_key(new, at, reason)
+
+    def _emit_key(self, new: str, at: datetime, reason: str) -> list[Transition]:
         if new == self._key:
             return []
+        if self._since is not None and at < self._since:
+            at = self._since  # back-dated, but never before the previous change
         old, self._key, self._since, self._reason = self._key, new, at, reason
         return [Transition(at, old, new, reason)]

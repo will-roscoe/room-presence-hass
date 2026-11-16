@@ -315,6 +315,8 @@ class PersonTracker:
         if not (ch.occupied and (ch.edge or not ch.was_occupied)) or ch.degraded:
             return []
         current = self._room
+        if current is not None and self.rooms[current].degraded:
+            return []  # the current room cannot see: other rooms are fallback evidence only
         if current is None or self.held:
             return self._move(at, room_slug, "moved")
         if self.home.room(room_slug).exclusive:
@@ -395,7 +397,12 @@ class PersonTracker:
     def _occupied_own_room(self, room_slug: str, at: datetime) -> list[Transition]:
         sensors = self.rooms[room_slug]
         if sensors.occupied:
-            self._pending_exit = None
+            if self._pending_exit is not None:
+                # Back before the exit was decided: the exit happened, then a short trip ended.
+                edge, self._pending_exit = self._pending_exit[0], None
+                self._pending_drop = None
+                out = self._set(edge, Presence.JUST_LEFT, None, None, "crossing")
+                return out + self._set(at, Presence.IN_ROOM, room_slug, sensors.spot_now(), "entry")
             spot = sensors.spot_now()
             if spot is None and self._spot is not None:
                 if self._pending_drop is None:

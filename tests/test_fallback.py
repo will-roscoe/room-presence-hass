@@ -212,3 +212,13 @@ def test_back_with_a_sensor_on_cancels_fallback_exit():
     )
     rig.tick(1000)
     assert rig.person.presence is Presence.IN_ROOM
+
+
+def test_other_rooms_do_not_move_the_person_out_of_a_degraded_room():
+    # With the bedroom's presence sensor offline the bathroom sensor is fallback evidence only,
+    # as in v0.1; moving the person there would hide the bedroom's fallback exit.
+    rig = degraded_in_bed()
+    rig.run((150, BATH, "on"), (160, BATH, "off"))
+    assert rig.view == "bedroom/bed"
+    trs = door_exit(rig)
+    assert [(tr.new, tr.reason) for tr in trs] == [("just_left", "fallback_exit")]

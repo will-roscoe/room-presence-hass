@@ -352,7 +352,8 @@ def test_showering_pins_and_keys():
     snap = m.snapshot()
     assert snap.key == "bathroom:showering"
     assert snap.showering and snap.activity is Activity.SHOWERING
-    assert trs[-1].at == t(360)  # back-dated to the bathroom presence edge
+    # Back-dated to the bathroom presence edge (360), but never before the previous change (405).
+    assert trs[-1].at == t(405)
     feed(m, 700, BED, "on")  # pinned: the bedroom is ignored while showering
     feed(m, 701, BED, "off")
     assert m.snapshot().key == "bathroom:showering"
@@ -380,3 +381,16 @@ def test_degraded_rooms_in_snapshot():
     feed(m, 0, ROOM, "unavailable")
     feed(m, 0, BATH, "off")
     assert m.snapshot().degraded == frozenset({"bedroom"})
+
+
+def test_short_trip_emits_just_left_then_return():
+    m = machine()
+    feed(m, 0, ROOM, "on")
+    feed(m, 50, DOOR, "on")
+    feed(m, 55, DOOR, "off")
+    feed(m, 70, ROOM, "off")
+    trs = feed(m, 80, ROOM, "on")
+    assert [(tr.at, tr.old, tr.new, tr.reason) for tr in trs] == [
+        (t(50), "bedroom", "just_left", "crossing"),
+        (t(80), "just_left", "bedroom", "entry"),
+    ]

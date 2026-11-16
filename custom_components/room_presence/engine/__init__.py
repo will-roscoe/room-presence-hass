@@ -7,6 +7,7 @@ the transitions it returns and its :class:`Snapshot`.
 
 from .home import HomeMachine
 from .places import Place
+from .replay import history_events, replay
 from .types import (
     Activity,
     HomeConfig,
@@ -33,4 +34,6 @@ __all__ = [
     "StateEvent",
     "Timings",
     "Transition",
+    "history_events",
+    "replay",
 ]

@@ -88,9 +88,16 @@ def test_exit_decided_after_move_window():
     assert [(tr.at, tr.new, tr.reason) for tr in trs] == [(t(50), "just_left", "crossing")]
 
 
-def test_back_in_room_before_decision_cancels_exit():
+def test_short_trip_before_decision_is_exit_and_entry():
+    # A 6 s trip out (exit L, 5 Nov 16:17:37-43) returns before the move window closes: the exit
+    # still happened, then the person came back.
     rig = in_room()
-    rig.run((50, DOOR, "on"), (55, DOOR, "off"), (70, ROOM, "off"), (80, ROOM, "on"))
+    rig.run((50, DOOR, "on"), (55, DOOR, "off"), (70, ROOM, "off"))
+    trs = rig.run((80, ROOM, "on"))
+    assert [(tr.at, tr.new, tr.reason) for tr in trs] == [
+        (t(50), "just_left", "crossing"),
+        (t(80), "bedroom", "entry"),
+    ]
     rig.tick(200)
     assert rig.person.presence is Presence.IN_ROOM
 
