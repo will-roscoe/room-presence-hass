@@ -41,9 +41,6 @@ def auto_enable_custom_integrations(
     yield
 
 
-pytestmark = pytest.mark.usefixtures("no_platforms")
-
-
 class History:
     """Write input states into the recorder at chosen times before ``now``."""
 

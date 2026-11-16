@@ -54,12 +54,6 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
-@pytest.fixture
-def no_platforms(monkeypatch):
-    """Set the integration up without its entity platforms (for coordinator-level tests)."""
-    monkeypatch.setattr("custom_components.room_presence.PLATFORMS", [])
-
-
 def make_entry(
     hass,
     rooms=(BEDROOM, BATHROOM),

@@ -5,7 +5,6 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
-import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_capture_events,
@@ -16,8 +15,6 @@ from custom_components.room_presence.const import EVENT_TRANSITION
 from custom_components.room_presence.discovery import person_ssid_sensors
 
 from .conftest import BED, PERSON, ROOM, THP_DOOR, TRACKER, setup
-
-pytestmark = pytest.mark.usefixtures("no_platforms")
 
 
 async def advance(hass, freezer, seconds: float) -> None:

@@ -307,66 +307,53 @@
   "entity": {
     "sensor": {
       "location": {
-        "name": "Location",
+        "name": "Location"
+      },
+      "activity": {
+        "name": "Activity",
         "state": {
-          "bed": "Bed",
-          "desk": "Desk",
-          "room": "Room",
-          "bathroom": "Bathroom",
-          "sleeping": "Sleeping",
-          "recently_left": "Recently left",
+          "asleep": "Asleep",
+          "showering": "Showering",
+          "awake": "Awake",
           "away": "Away",
           "unknown": "Unknown"
-        },
-        "state_attributes": {
-          "since": {
-            "name": "Since"
-          },
-          "room_state": {
-            "name": "Room state"
-          },
-          "held": {
-            "name": "Held"
-          },
-          "place": {
-            "name": "Place"
-          },
-          "conflict": {
-            "name": "Phone disagrees"
-          },
-          "reason": {
-            "name": "Reason"
-          },
-          "phone_age": {
-            "name": "Phone data age"
-          }
+        }
+      },
+      "state": {
+        "name": "State",
+        "state": {
+          "home": "Home",
+          "away": "Away",
+          "unknown": "Unknown",
+          "just_left": "Just left",
+          "asleep": "asleep",
+          "showering": "showering"
         }
       }
     },
     "binary_sensor": {
-      "in_room": {
-        "name": "In room"
-      },
-      "in_bed": {
-        "name": "In bed"
-      },
-      "at_desk": {
-        "name": "At desk"
-      },
-      "in_bathroom": {
-        "name": "In bathroom"
-      },
-      "sleeping": {
-        "name": "Sleeping"
-      },
-      "recently_left": {
-        "name": "Recently left"
-      },
       "home": {
         "name": "Home"
       },
+      "just_left": {
+        "name": "Just left"
+      },
+      "asleep": {
+        "name": "Asleep"
+      },
+      "showering": {
+        "name": "Showering"
+      },
+      "occupied": {
+        "name": "Occupied"
+      },
       "degraded": {
-        "name": "Degraded"
+        "name": "Degraded",
+        "state_attributes": {
+          "entities": {
+            "name": "Unavailable sensors"
+          }
+        }
       }
     }
   },

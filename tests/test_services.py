@@ -11,8 +11,6 @@ from custom_components.room_presence.const import DOMAIN
 
 from .conftest import setup
 
-pytestmark = pytest.mark.usefixtures("no_platforms")
-
 
 async def call(hass, **data) -> None:
     await hass.services.async_call(DOMAIN, "set_state", data, blocking=True)

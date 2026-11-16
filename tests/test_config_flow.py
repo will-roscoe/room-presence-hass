@@ -11,8 +11,6 @@ from custom_components.room_presence.const import DOMAIN
 
 from .conftest import BATH, BED, DESK, DOOR, HUM, PERSON, ROOM, THP_ROOM, TRACKER, make_entry, setup
 
-pytestmark = pytest.mark.usefixtures("no_platforms")
-
 
 def suggested(result, key: str):
     for marker in result["data_schema"].schema:
