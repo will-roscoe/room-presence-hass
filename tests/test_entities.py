@@ -19,7 +19,19 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
 
 from custom_components.room_presence.const import DOMAIN
 
-from .conftest import BATH, BATHROOM, BED, BEDROOM, HUM, PERSON, ROOM, THP_DOOR, make_entry, setup
+from .conftest import (
+    BATH,
+    BATHROOM,
+    BED,
+    BEDROOM,
+    HUM,
+    PERSON,
+    ROOM,
+    SSID,
+    THP_DOOR,
+    make_entry,
+    setup,
+)
 
 PERSON_ENTITIES = {
     "sensor.will_location": "location",
@@ -215,6 +227,7 @@ async def test_entities_follow_subentry_removal(hass, entry):
 
 async def test_diagnostics_redacts_ssids(hass, entry, hass_client, freezer):
     await setup(hass, entry)
+    await set_input(hass, freezer, SSID, "HallsNet")
     await set_input(hass, freezer, ROOM, "on")
     diag = await get_diagnostics_for_config_entry(hass, hass_client, entry)
     assert diag["data"]["home_ssids"] == "**REDACTED**"
@@ -225,6 +238,8 @@ async def test_diagnostics_redacts_ssids(hass, entry, hass_client, freezer):
     assert diag["snapshot"]["activity"] == "awake"
     assert diag["transitions"][-1]["new"] == "bedroom"
     assert diag["edges"][-1]["entity_id"] == ROOM
+    assert "HallsNet" not in str(diag)
+    assert any(e["entity_id"] == SSID and e["state"] == "**REDACTED**" for e in diag["edges"])
     assert "options" in diag
 
 

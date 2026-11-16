@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.core import HomeAssistant
 
 from . import PresenceConfigEntry
@@ -18,8 +18,10 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: PresenceConfigEntry
 ) -> dict[str, Any]:
     """Return ``data``, ``options``, ``subentries`` (``type``, ``title``, ``data``), ``snapshot``,
-    ``transitions`` (last 200) and ``edges`` (last 500 sensor changes); Wi-Fi names redacted."""
+    ``transitions`` (last 200) and ``edges`` (last 500 sensor changes); Wi-Fi names redacted,
+    including the states of the phone's Wi-Fi sensors in ``edges``."""
     coord = entry.runtime_data
+    ssid_sensors = set(coord.home.ssid_sensors)
     snap = asdict(coord.snapshot)
     snap["since"] = snap["since"].isoformat() if snap["since"] else None
     snap["degraded"] = sorted(snap["degraded"])
@@ -40,7 +42,11 @@ async def async_get_config_entry_diagnostics(
             for t in coord.transitions
         ],
         "edges": [
-            {"at": e.at.isoformat(), "entity_id": e.entity_id, "state": e.state}
+            {
+                "at": e.at.isoformat(),
+                "entity_id": e.entity_id,
+                "state": REDACTED if e.entity_id in ssid_sensors else e.state,
+            }
             for e in coord.edges
         ],
     }
