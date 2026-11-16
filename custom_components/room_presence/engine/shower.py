@@ -48,10 +48,7 @@ class ShowerTracker:
 
         :param sensors: this room's sensors, already fed ``ev``, for the presence-edge condition.
         """
-        value = self._value(ev)
-        if value is not None and self._showering and value > self._high:
-            # A new high arriving exactly at the deadline keeps the shower going.
-            self._high, self._high_at = value, ev.at
+        value = self.observe(ev)
         out = self.tick(ev.at)
         if value is None:
             return out
@@ -71,6 +68,14 @@ class ShowerTracker:
         self._showering, self._since = True, since
         self._high, self._high_at = value, at
         return [*out, Transition(since, "dry", "showering", "shower_start")]
+
+    def observe(self, ev: StateEvent) -> float | None:
+        """Note a new high from ``ev`` before any deadline runs, so that a new high arriving
+        exactly at the end deadline keeps the shower going; return the reading, or ``None``."""
+        value = self._value(ev)
+        if value is not None and self._showering and value > self._high:
+            self._high, self._high_at = value, ev.at
+        return value
 
     def _value(self, ev: StateEvent) -> float | None:
         if ev.entity_id != self.room.humidity:
