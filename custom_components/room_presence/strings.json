@@ -2,79 +2,241 @@
   "config": {
     "step": {
       "user": {
-        "title": "Track a room",
+        "title": "Set up your home",
+        "description": "Pick the person to track and how to tell they are home. Add rooms and places afterwards from the integration page.",
         "data": {
-          "name": "Name",
-          "fp2_room": "FP2 room zone",
-          "fp2_bed": "FP2 bed zone",
-          "fp2_desk": "FP2 desk zone",
-          "door_witnesses": "Door sensors",
-          "phone_tracker": "Phone tracker",
-          "phone_ssid": "Phone Wi-Fi network sensor"
+          "person": "Person",
+          "home_zone": "Home zone",
+          "home_ssids": "Home Wi-Fi networks"
         },
         "data_description": {
-          "fp2_room": "Occupancy sensor of the FP2 zone covering the whole room (not the bathroom).",
-          "door_witnesses": "Sensors that see the door: the FP2 door zone and/or a motion sensor aimed at it. Leaving needs one of them.",
-          "phone_tracker": "Device tracker of the occupant's phone (its zone).",
-          "phone_ssid": "Sensor with the Wi-Fi network the phone is on (optional)."
+          "person": "Whose presence this tracks. Entities are named after them.",
+          "home_zone": "The person is home while their tracker is in this zone.",
+          "home_ssids": "The person is home while their phone is on any of these networks."
+        }
+      },
+      "ssids": {
+        "title": "Phone Wi-Fi sensors",
+        "description": "Sensors found from the person's devices are filled in. Leave empty to use zones only.",
+        "data": {
+          "ssid_sensors": "Phone Wi-Fi sensors"
+        },
+        "data_description": {
+          "ssid_sensors": "Sensors reporting the network the person's phone is on (e.g. the Companion app's Wi-Fi connection sensor)."
+        }
+      },
+      "reconfigure": {
+        "title": "Home",
+        "data": {
+          "home_zone": "Home zone",
+          "home_ssids": "Home Wi-Fi networks"
+        },
+        "data_description": {
+          "home_zone": "The person is home while their tracker is in this zone.",
+          "home_ssids": "The person is home while their phone is on any of these networks."
         }
       }
     },
-    "error": {
-      "door_witness_required": "Pick at least one door sensor."
-    },
     "abort": {
-      "already_configured": "This FP2 room zone is already tracked."
+      "single_instance_allowed": "[%key:common::config_flow::abort::single_instance_allowed%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Sensors and timings",
+        "title": "Timings",
         "data": {
           "crossing_window": "Crossing window",
-          "bathroom_window": "Bathroom window",
-          "recently_left_duration": "Recently left for",
-          "sleep_quiet": "Stillness before sleeping",
+          "move_window": "Move window",
+          "recently_left_duration": "Just left for",
+          "sleep_quiet": "Stillness before asleep",
           "wake_on_time": "Wake movement",
           "bed_leave_grace": "Out of bed grace",
-          "exit_pre_window": "Fallback: motion before the door",
-          "exit_quiet": "Fallback: quiet after the door",
-          "exit_door_on_time": "Fallback: door on-time",
+          "exit_pre_window": "Fallback: motion before the exit",
+          "exit_quiet": "Fallback: quiet after the exit",
+          "exit_door_on_time": "Fallback: exit sensor on-time",
           "entry_window": "Fallback: entry window",
+          "exclusive_quiet": "Exclusive room quiet",
+          "shower_window": "Shower window",
+          "shower_end": "Shower end",
+          "shower_rise": "Shower rise",
           "rebuild_lookback": "History replayed at startup",
-          "entry_needs_crossing": "Entry needs a door crossing",
-          "bathroom": "Bathroom sensor",
-          "movement": "Movement sensor",
-          "fallback_motion": "Fallback motion sensors",
-          "sleep_entities": "Sleep entities"
+          "entry_needs_crossing": "Entry needs a crossing"
         },
         "data_description": {
-          "crossing_window": "How far back from the FP2 going empty a door-sensor trigger counts as walking out (seconds).",
-          "bathroom_window": "After a crossing, a bathroom-sensor trigger within this time means the bathroom, not leaving (seconds).",
-          "recently_left_duration": "How long recently_left lasts before the place layer takes over (seconds).",
-          "sleep_quiet": "In bed with no movement-sensor trigger for this long means sleeping (seconds).",
-          "wake_on_time": "A movement-sensor trigger longer than this wakes (seconds).",
-          "bed_leave_grace": "Leaving the bed zone for longer than this wakes (seconds).",
-          "exit_pre_window": "FP2 unavailable: an exit needs motion this soon before the door trigger (seconds).",
-          "exit_quiet": "FP2 unavailable: no motion for this long after the door means left (seconds).",
-          "exit_door_on_time": "FP2 unavailable: the door trigger must last at least this long (seconds).",
-          "entry_window": "FP2 unavailable: other sensors must trigger this soon after the door to count as an entry (seconds).",
+          "crossing_window": "How far back from a room going empty a sensor edge counts as the way out (seconds).",
+          "move_window": "After a room goes empty, presence in another room within this time is a move, not leaving (seconds).",
+          "recently_left_duration": "How long just left lasts before the person is away (seconds).",
+          "sleep_quiet": "In bed with no movement for this long means asleep (seconds).",
+          "wake_on_time": "Movement longer than this wakes (seconds).",
+          "bed_leave_grace": "Leaving the bed spot for longer than this wakes (seconds).",
+          "exit_pre_window": "Presence unavailable: an exit needs motion this soon before the exit sensor (seconds).",
+          "exit_quiet": "Presence unavailable: no motion for this long after the exit sensor means left (seconds).",
+          "exit_door_on_time": "Presence unavailable: the exit sensor must stay on at least this long (seconds).",
+          "entry_window": "Presence unavailable: motion must follow the exit sensor this soon to count as an entry (seconds).",
+          "exclusive_quiet": "Leaving an exclusive room for a neighbour that never emptied needs the exclusive room quiet this long (seconds).",
+          "shower_window": "A shower's humidity rise is measured from the lowest reading in this window (seconds).",
+          "shower_end": "No new humidity high for this long ends a shower (seconds).",
+          "shower_rise": "Humidity points above the window's lowest reading that start a shower.",
           "rebuild_lookback": "Hours of recorder history replayed to rebuild the state.",
-          "entry_needs_crossing": "Only count the FP2 room zone as an entry if a door sensor triggered just before.",
-          "bathroom": "Motion sensor in the ensuite.",
-          "movement": "Motion sensor watching the bed; used to tell sleeping from lying awake.",
-          "fallback_motion": "Motion sensors used while the FP2 is unavailable.",
-          "sleep_entities": "When all of these turn off while in bed, that means sleeping (e.g. lights)."
+          "entry_needs_crossing": "Only count a room going occupied from outside as an entry if one of its exit sensors triggered just before."
         }
       }
     }
   },
   "config_subentries": {
+    "person": {
+      "entry_type": "Person",
+      "initiate_flow": {
+        "user": "Add person",
+        "reconfigure": "Edit person"
+      },
+      "step": {
+        "reconfigure": {
+          "title": "Edit person",
+          "data": {
+            "person": "Person",
+            "ssid_sensors": "Phone Wi-Fi sensors"
+          },
+          "data_description": {
+            "person": "Whose presence this tracks. Entities are named after them.",
+            "ssid_sensors": "Sensors reporting the network the person's phone is on (e.g. the Companion app's Wi-Fi connection sensor)."
+          }
+        }
+      },
+      "abort": {
+        "single_person": "Only one person per home is supported for now.",
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      }
+    },
+    "room": {
+      "entry_type": "Room",
+      "initiate_flow": {
+        "user": "Add room",
+        "reconfigure": "Edit room"
+      },
+      "step": {
+        "user": {
+          "title": "Add a room",
+          "data": {
+            "name": "Name",
+            "area_id": "Area",
+            "presence": "Presence sensors",
+            "motion": "Motion sensors",
+            "exits": "Exit sensors",
+            "bathroom": "Bathroom",
+            "exclusive": "Exclusive"
+          },
+          "data_description": {
+            "name": "Also names the room's location value and its device.",
+            "area_id": "Optional. The room's device is placed in this area.",
+            "presence": "Sensors that are on while someone is in the room (e.g. an mmWave zone). The room is occupied while any is on.",
+            "motion": "Optional. Used to tell entries and exits apart while the presence sensors are unavailable.",
+            "exits": "Optional. Sensors at the doors out of the home. Leaving the home is only recognised from rooms with exit sensors.",
+            "bathroom": "Detect showers in this room from a humidity sensor.",
+            "exclusive": "While this room is occupied it wins over neighbouring rooms whose sensors pick it up through the wall."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit room",
+          "data": {
+            "name": "Name",
+            "area_id": "Area",
+            "presence": "Presence sensors",
+            "motion": "Motion sensors",
+            "exits": "Exit sensors",
+            "bathroom": "Bathroom",
+            "exclusive": "Exclusive"
+          },
+          "data_description": {
+            "name": "Also names the room's location value and its device.",
+            "area_id": "Optional. The room's device is placed in this area.",
+            "presence": "Sensors that are on while someone is in the room (e.g. an mmWave zone). The room is occupied while any is on.",
+            "motion": "Optional. Used to tell entries and exits apart while the presence sensors are unavailable.",
+            "exits": "Optional. Sensors at the doors out of the home. Leaving the home is only recognised from rooms with exit sensors.",
+            "bathroom": "Detect showers in this room from a humidity sensor.",
+            "exclusive": "While this room is occupied it wins over neighbouring rooms whose sensors pick it up through the wall."
+          }
+        },
+        "humidity": {
+          "title": "Bathroom humidity",
+          "data": {
+            "humidity": "Humidity sensor"
+          },
+          "data_description": {
+            "humidity": "A shower starts when this rises quickly. Leave empty to skip shower detection."
+          }
+        },
+        "spots": {
+          "title": "Spots",
+          "description": "Places inside the room with their own sensor. Current: {spots}.",
+          "menu_options": {
+            "add_spot": "Add a spot",
+            "edit_spot": "Edit a spot",
+            "remove_spot": "Remove a spot",
+            "move_spot_up": "Move a spot up",
+            "finish": "Save the room"
+          }
+        },
+        "spot": {
+          "title": "Spot",
+          "data": {
+            "name": "Name",
+            "sensor": "Sensor",
+            "role": "Role"
+          },
+          "data_description": {
+            "name": "Also names the spot's location value (e.g. bed, desk).",
+            "sensor": "On while someone is at this spot (e.g. an mmWave zone).",
+            "role": "A bed spot also detects sleep."
+          }
+        },
+        "spot_bed": {
+          "title": "Bed",
+          "data": {
+            "stillness": "Movement sensor",
+            "sleep_entities": "Sleep entities"
+          },
+          "data_description": {
+            "stillness": "Optional. Watches the bed; no movement for the sleep stillness time means asleep.",
+            "sleep_entities": "Optional. When all of these turn off while in bed, that means asleep (e.g. lights)."
+          }
+        },
+        "edit_spot": {
+          "title": "Edit a spot",
+          "data": {
+            "spot": "Spot"
+          }
+        },
+        "remove_spot": {
+          "title": "Remove a spot",
+          "data": {
+            "spot": "Spot"
+          }
+        },
+        "move_spot_up": {
+          "title": "Move a spot up",
+          "data": {
+            "spot": "Spot"
+          }
+        }
+      },
+      "error": {
+        "name_reserved": "That name is a built-in location. Pick another.",
+        "name_taken": "A room, spot or place already has that name.",
+        "spot_name_taken": "This room already has a spot with that name.",
+        "presence_required": "Pick at least one presence sensor."
+      },
+      "abort": {
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      }
+    },
     "place": {
       "entry_type": "Place",
       "initiate_flow": {
-        "user": "Add place"
+        "user": "Add place",
+        "reconfigure": "Edit place"
       },
       "step": {
         "user": {
@@ -84,15 +246,14 @@
             "ssids": "Wi-Fi networks",
             "zones": "Zones",
             "mode": "Match",
-            "priority": "Priority",
-            "on_site": "In the home building"
+            "priority": "Priority"
           },
           "data_description": {
+            "name": "Also names the place's location value.",
             "ssids": "The phone on any of these networks is here.",
-            "zones": "The phone tracker in any of these zones is here.",
-            "mode": "any: an SSID or a zone is enough; all: needs both.",
-            "priority": "Lower wins when several places match.",
-            "on_site": "Counts as home (e.g. the building's common room) and never overrides the room sensors."
+            "zones": "The person in any of these zones is here.",
+            "mode": "Any: a network or a zone is enough. All: needs both.",
+            "priority": "Lower wins when several places match."
           }
         },
         "reconfigure": {
@@ -102,30 +263,44 @@
             "ssids": "Wi-Fi networks",
             "zones": "Zones",
             "mode": "Match",
-            "priority": "Priority",
-            "on_site": "In the home building"
+            "priority": "Priority"
           },
           "data_description": {
+            "name": "Also names the place's location value.",
             "ssids": "The phone on any of these networks is here.",
-            "zones": "The phone tracker in any of these zones is here.",
-            "mode": "any: an SSID or a zone is enough; all: needs both.",
-            "priority": "Lower wins when several places match.",
-            "on_site": "Counts as home (e.g. the building's common room) and never overrides the room sensors."
+            "zones": "The person in any of these zones is here.",
+            "mode": "Any: a network or a zone is enough. All: needs both.",
+            "priority": "Lower wins when several places match."
           }
         }
       },
       "error": {
-        "place_name_reserved": "That name is a built-in location; pick another.",
-        "place_name_taken": "Another place already has that name.",
+        "name_reserved": "That name is a built-in location. Pick another.",
+        "name_taken": "A room, spot or place already has that name.",
         "place_needs_ssid_or_zone": "Give at least one Wi-Fi network or zone."
+      },
+      "abort": {
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
       }
     }
   },
   "selector": {
     "mode": {
       "options": {
-        "any": "Any (SSID or zone)",
-        "all": "All (SSID and zone)"
+        "any": "Any (network or zone)",
+        "all": "All (network and zone)"
+      }
+    },
+    "role": {
+      "options": {
+        "none": "None",
+        "bed": "Bed"
+      }
+    },
+    "activity": {
+      "options": {
+        "asleep": "Asleep",
+        "awake": "Awake"
       }
     }
   },
@@ -196,28 +371,31 @@
     }
   },
   "exceptions": {
-    "entry_not_found": {
-      "message": "No loaded room_presence entry has the id {entry_id}."
+    "not_loaded": {
+      "message": "Room presence is not set up or not loaded."
     },
-    "entry_required": {
-      "message": "Several room_presence entries are loaded: give config_entry_id."
+    "nothing_to_set": {
+      "message": "Give a location, an activity, or both."
     },
-    "invalid_state": {
-      "message": "{state} is not a location you can set: use bed, desk, room, bathroom, sleeping, recently_left, away or a configured place."
+    "invalid_location": {
+      "message": "{value} is not a location of this home. Use a room, spot or place name, home or away."
+    },
+    "invalid_activity": {
+      "message": "{value} cannot be set. Use asleep or awake."
     }
   },
   "services": {
     "set_state": {
       "name": "Set state",
-      "description": "Correct the tracked location, now or after a delay. Inference continues from the new state.",
+      "description": "Correct the location and/or activity, now or after a delay. Inference continues from the new state.",
       "fields": {
-        "config_entry_id": {
-          "name": "Room",
-          "description": "The room_presence entry to correct. Needed only when there are several."
+        "location": {
+          "name": "Location",
+          "description": "A room, spot or place name (as a slug, e.g. bed), home or away."
         },
-        "state": {
-          "name": "State",
-          "description": "bed, desk, room, bathroom, sleeping, recently_left, away, or a place slug."
+        "activity": {
+          "name": "Activity",
+          "description": "Asleep or awake. Asleep without a location means the bed."
         },
         "delay": {
           "name": "Delay",
