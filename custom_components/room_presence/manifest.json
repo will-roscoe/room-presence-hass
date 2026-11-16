@@ -16,6 +16,6 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/will-roscoe/room-presence-hass/issues",
   "requirements": [],
-  "version": "0.1.0",
-  "single_config_entry": true
+  "single_config_entry": true,
+  "version": "0.1.0"
 }
