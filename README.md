@@ -144,7 +144,8 @@ Automatic. The 0.1 room becomes a room named after the old entry, with Bed and D
 sensors as exit sensors, and its fallback motion sensors; a configured bathroom sensor becomes an
 exclusive Bathroom room (pick its humidity sensor afterwards to detect showers). The person is the
 one whose trackers include the old phone tracker; if none or several match, a repair asks you to
-pick one. Places and timings carry over.
+pick one. Places and timings carry over, except that an on-site place's Wi-Fi networks become home
+networks.
 
 The entity ids change: the old `sensor.<name>_location` and its binary sensors are removed, and the
 new person and room entities are created. Update any automation that used them. A second 0.1 entry

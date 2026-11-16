@@ -39,6 +39,7 @@ from .const import (
     CONF_SLEEP_ENTITIES,
     CONF_SPOTS,
     CONF_SSID_SENSORS,
+    CONF_SSIDS,
     CONF_STILLNESS,
     DOMAIN,
     ROLE_BED,
@@ -70,8 +71,10 @@ async def async_migrate(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Upgrade ``entry`` from version 1 to 2; ``True`` when it is (or already was) version 2.
 
     Writes the person, room and place subentries, the new data and options, removes the v0.1
-    entities, device and stored corrections. Only the domain's first entry is upgraded: any
-    other version 1 entry returns ``False`` and raises the ``multiple_entries`` issue.
+    entities, device and stored corrections. An on-site place's Wi-Fi networks become home
+    networks and the place is removed (its zones, if any, are dropped). Only the domain's first
+    entry is upgraded: any other version 1 entry returns ``False`` and raises the
+    ``multiple_entries`` issue.
     """
     if entry.version != 1:
         return entry.version == 2
@@ -88,10 +91,16 @@ async def async_migrate(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         return False
     conf = {**entry.data, **entry.options}
-    places = [s for s in entry.subentries.values() if s.subentry_type == SUBENTRY_PLACE]
-    for sub in places:
+    places, home_ssids = [], []
+    for sub in [s for s in entry.subentries.values() if s.subentry_type == SUBENTRY_PLACE]:
+        if sub.data.get(V1_ON_SITE):
+            # An on-site place counted as home: its networks are home networks now.
+            home_ssids += [s for s in sub.data.get(CONF_SSIDS) or () if s not in home_ssids]
+            hass.config_entries.async_remove_subentry(entry, sub.subentry_id)
+            continue
         data = {k: v for k, v in sub.data.items() if k != V1_ON_SITE}
         hass.config_entries.async_update_subentry(entry, sub, data=data)
+        places.append(sub)
     if (person := _person(hass, conf.get(V1_PHONE_TRACKER))) is not None:
         _add(
             hass,
@@ -109,7 +118,7 @@ async def async_migrate(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.config_entries.async_update_entry(
         entry,
         title="Home",
-        data={CONF_HOME_ZONE: "zone.home", CONF_HOME_SSIDS: []},
+        data={CONF_HOME_ZONE: "zone.home", CONF_HOME_SSIDS: home_ssids},
         options=_options(entry.options),
         version=2,
     )

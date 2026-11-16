@@ -194,6 +194,29 @@ async def test_migration_keeps_places_without_on_site(hass, live_states):
     assert dict(uni.data) == {k: v for k, v in place.items() if k != "on_site"}
 
 
+async def test_migration_on_site_place_becomes_home_ssids(hass, live_states):
+    building = {
+        "name": "Building",
+        "ssids": ["HallsNet", "HallsGuest"],
+        "zones": [],
+        "mode": "any",
+        "priority": 1,
+        "on_site": True,
+    }
+    uni = {
+        "name": "Uni",
+        "ssids": ["eduroam"],
+        "zones": [],
+        "mode": "any",
+        "priority": 0,
+        "on_site": False,
+    }
+    entry = v1_entry(hass, places=(building, uni))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.data["home_ssids"] == ["HallsNet", "HallsGuest"]
+    assert [s.title for s in subs(entry, "place")] == ["Uni"]
+
+
 @pytest.mark.parametrize(
     ("title", "room_name"), [("Home", "Room"), ("Bathroom", "Bathroom 2"), ("Bed", "Bed 2")]
 )
