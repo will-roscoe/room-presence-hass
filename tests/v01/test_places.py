@@ -2,7 +2,7 @@
 
 import pytest
 
-from custom_components.room_presence.engine.places import Place, match_place
+from custom_components.room_presence.engine.v01.places import Place, match_place
 
 UNI = Place(slug="uni", name="Uni", ssids=("eduroam",), zones=("zone.uni",))
 BUILDING = Place(slug="building", name="Building", ssids=("HallsNet",), on_site=True)

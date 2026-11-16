@@ -10,16 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from custom_components.room_presence.engine.machine import PresenceMachine
-from custom_components.room_presence.engine.replay import history_events, replay
-from custom_components.room_presence.engine.types import (
+from custom_components.room_presence.engine.v01.machine import PresenceMachine
+from custom_components.room_presence.engine.v01.replay import history_events, replay
+from custom_components.room_presence.engine.v01.types import (
     EngineConfig,
     ManualEvent,
     StateEvent,
     Transition,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 FP2 = "binary_sensor.aqara_fp2_{}_presence"
 THP = "binary_sensor.tuya_thp_{}_presence"
 IN_ROOM = {"bed", "desk", "room", "bathroom", "sleeping"}

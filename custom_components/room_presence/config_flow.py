@@ -57,7 +57,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import SUBENTRY_PLACE
-from .engine.machine import LOCATIONS_FIXED
+from .engine.v01.machine import LOCATIONS_FIXED
 
 
 def _number(maximum: float, unit: str, step: float = 1) -> NumberSelector:

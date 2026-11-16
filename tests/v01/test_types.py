@@ -5,9 +5,9 @@ from pathlib import Path
 import subprocess
 import sys
 
-from custom_components.room_presence.engine.types import EngineConfig
+from custom_components.room_presence.engine.v01.types import EngineConfig
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_engine_config_defaults_match_spec():
@@ -26,7 +26,7 @@ def test_engine_config_defaults_match_spec():
 
 
 def test_engine_does_not_import_homeassistant():
-    engine = ROOT / "custom_components" / "room_presence" / "engine"
+    engine = ROOT / "custom_components" / "room_presence" / "engine" / "v01"
     modules = sorted(p.stem for p in engine.glob("*.py") if p.stem != "__init__")
     assert modules, "engine has no modules"
     # Load the engine package without running custom_components/room_presence/__init__.py,

@@ -9,7 +9,7 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
 )
 
 from custom_components.room_presence.const import DOMAIN
-from custom_components.room_presence.engine.machine import LOCATIONS_FIXED
+from custom_components.room_presence.engine.v01.machine import LOCATIONS_FIXED
 
 from .conftest import ROOM, make_entry, setup
 

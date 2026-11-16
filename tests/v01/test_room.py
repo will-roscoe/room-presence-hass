@@ -4,8 +4,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from custom_components.room_presence.engine.room import ZONE_SETTLE, RoomLayer
-from custom_components.room_presence.engine.types import EngineConfig, RoomState, StateEvent, Sub
+from custom_components.room_presence.engine.v01.room import ZONE_SETTLE, RoomLayer
+from custom_components.room_presence.engine.v01.types import (
+    EngineConfig,
+    RoomState,
+    StateEvent,
+    Sub,
+)
 
 T0 = datetime(2000, 1, 3, 12, 0, tzinfo=UTC)
 ROOM = "binary_sensor.fp2_room"

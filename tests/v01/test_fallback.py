@@ -2,8 +2,13 @@
 
 from datetime import UTC, datetime, timedelta
 
-from custom_components.room_presence.engine.room import RoomLayer
-from custom_components.room_presence.engine.types import EngineConfig, RoomState, StateEvent, Sub
+from custom_components.room_presence.engine.v01.room import RoomLayer
+from custom_components.room_presence.engine.v01.types import (
+    EngineConfig,
+    RoomState,
+    StateEvent,
+    Sub,
+)
 
 T0 = datetime(2000, 1, 10, 13, 0, tzinfo=UTC)
 ROOM = "binary_sensor.fp2_room"

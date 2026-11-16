@@ -35,10 +35,10 @@ from .const import (
     DOMAIN,
     EVENT_TRANSITION,
 )
-from .engine import EngineConfig, ManualEvent, Snapshot, StateEvent, Transition
-from .engine.machine import PresenceMachine
-from .engine.places import Place
-from .engine.replay import history_events, replay
+from .engine.v01 import EngineConfig, ManualEvent, Snapshot, StateEvent, Transition
+from .engine.v01.machine import PresenceMachine
+from .engine.v01.places import Place
+from .engine.v01.replay import history_events, replay
 
 #: Option keys holding a duration in seconds, by EngineConfig field (the same names).
 TIMING_KEYS = (

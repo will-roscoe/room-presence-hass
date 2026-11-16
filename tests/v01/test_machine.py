@@ -4,9 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from custom_components.room_presence.engine.machine import LOCATIONS_FIXED, PresenceMachine
-from custom_components.room_presence.engine.places import Place
-from custom_components.room_presence.engine.types import (
+from custom_components.room_presence.engine.v01.machine import LOCATIONS_FIXED, PresenceMachine
+from custom_components.room_presence.engine.v01.places import Place
+from custom_components.room_presence.engine.v01.types import (
     EngineConfig,
     ManualEvent,
     RoomState,
