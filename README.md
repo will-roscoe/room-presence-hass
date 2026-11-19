@@ -12,6 +12,8 @@ network fill the gaps.
 
 ## What you get
 
+<img src="https://github.com/will-roscoe/room-presence-hass/raw/main/docs/images/entities.png" alt="An entities card for one person and two rooms: the person's location (Desk) and activity (Awake), home, just left, asleep and showering; the bedroom's occupied, bed and desk sensors; and the bathroom's occupied sensor." width="420">
+
 **A device for the person**, named after them (here a person called Alex):
 
 - `sensor.alex_location`: the most specific place known, by name: a spot, else a room, else
@@ -58,11 +60,15 @@ release into the Home Assistant `config/custom_components` directory and restart
 
 Add **Room Presence** under Settings → Devices & services. There is one home per Home Assistant.
 
+<img src="https://github.com/will-roscoe/room-presence-hass/raw/main/docs/images/integration.png" alt="The Room Presence integration page: Add person, Add room and Add place buttons, and the Home entry holding the Bathroom and Bedroom rooms and the person, each with its own device and configure button." width="700">
+
 1. **The home:** the person to track, the home zone (default `zone.home`) and, optionally, your home
    Wi-Fi network names.
 2. **Phone Wi-Fi sensors:** sensors reporting the network the person's phone is on. They are found
    from the person's device trackers (e.g. the Companion app's Wi-Fi connection sensor); untick any
    you do not want.
+
+   <img src="https://github.com/will-roscoe/room-presence-hass/raw/main/docs/images/person.png" alt="The Edit person dialog: the person, and the phone Wi-Fi sensors with an SSID sensor listed." width="420">
 3. **Rooms** (**Add room** on the integration page), one per room:
 
    | Field | Required | Used for |
@@ -77,6 +83,9 @@ Add **Room Presence** under Settings → Devices & services. There is one home p
    Then add **spots**: a name, the sensor that is on while someone is there, and a role. A spot
    with the bed role also takes a movement sensor watching the bed and, optionally, sleep
    entities (e.g. lights). Spots are checked in list order; move one up to give it priority.
+
+   <img src="https://github.com/will-roscoe/room-presence-hass/raw/main/docs/images/room.png" alt="The Edit room dialog for a bedroom: name, area, an mmWave room zone as the presence sensor, three occupancy zones as motion sensors, and the door zone and door contact as exit sensors." width="380">
+   <img src="https://github.com/will-roscoe/room-presence-hass/raw/main/docs/images/spots.png" alt="The Spots menu for the bedroom (current spots: Bed, Desk): add, edit, remove or move a spot up, or save the room." width="380">
 4. **Places** (**Add place**, optional): somewhere outside the home, matched by Wi-Fi networks
    and/or zones (either one or both must match), with a priority (lower wins). Home Assistant zones
    already show by their name without a place; add one to match on Wi-Fi or to rename a zone.
